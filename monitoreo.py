@@ -9,31 +9,28 @@ import gspread
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
 
-TOKEN = "TU_TOKEN"
-CHAT_ID = "TU_CHAT"
+TOKEN="TU_TOKEN"
+CHAT_ID="TU_CHAT"
 
 def enviar_telegram(msg):
     try:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": CHAT_ID, "text": msg}, timeout=10)
+        requests.post(
+            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+            data={"chat_id":CHAT_ID,"text":msg},timeout=10
+        )
     except:
         pass
 
-# -------- FUENTES --------
-FUENTES = {
-    "Google Tech Global":
-        "https://news.google.com/rss/search?q=technology+regulation+children+privacy+platforms&hl=en-US&gl=US&ceid=US:en",
-    "Google Policy Europe":
-        "https://news.google.com/rss/search?q=digital+regulation+EU+children+internet+law&hl=en-GB&gl=GB&ceid=GB:en",
-    "Google Latam Tech":
-        "https://news.google.com/rss/search?q=regulacion+digital+niños+internet+plataformas&hl=es-419&gl=CO&ceid=CO:es-419",
-    "TechCrunch":
-        "https://techcrunch.com/tag/policy/feed/",
-    "The Verge Policy":
-        "https://www.theverge.com/rss/policy/index.xml"
+# ---------- FUENTES ----------
+FUENTES={
+    "Google Tech Global":"https://news.google.com/rss/search?q=technology+regulation+children+privacy+platforms&hl=en-US&gl=US&ceid=US:en",
+    "Google Policy Europe":"https://news.google.com/rss/search?q=digital+regulation+EU+children+internet+law&hl=en-GB&gl=GB&ceid=GB:en",
+    "Google Latam Tech":"https://news.google.com/rss/search?q=regulacion+digital+niños+internet+plataformas&hl=es-419&gl=CO&ceid=CO:es-419",
+    "TechCrunch":"https://techcrunch.com/tag/policy/feed/",
+    "The Verge Policy":"https://www.theverge.com/rss/policy/index.xml"
 }
 
-CLAVES = [
+CLAVES=[
     "children","child","kids","minor","youth","teen",
     "privacy","data protection","platform regulation",
     "online safety","digital safety","content moderation",
@@ -46,85 +43,84 @@ def limpiar(t):
     return " ".join(str(t).replace("\n"," ").split())
 
 def relevante(texto):
-    texto = str(texto).lower()
+    texto=str(texto).lower()
     return any(p in texto for p in CLAVES)
 
-def traducir(texto):
+def traducir(t):
     try:
-        return GoogleTranslator(source="auto", target="es").translate(texto)
+        return GoogleTranslator(source="auto",target="es").translate(t)
     except:
-        return texto
+        return t
 
-# -------- RECOLECTAR --------
+# ---------- RECOLECTAR ----------
 def recolectar():
     datos=[]
     for medio,url in FUENTES.items():
         feed=feedparser.parse(url)
-
         for e in feed.entries:
             titulo=limpiar(e.title)
-
-            if not relevante(titulo):
+            if not relevante(titulo): 
                 continue
-
             datos.append({
-                "medio":str(medio),
-                "titulo_original":str(titulo),
-                "titulo_es":str(traducir(titulo)),
-                "link":str(e.link),
+                "medio":medio,
+                "titulo_original":titulo,
+                "titulo_es":traducir(titulo),
+                "link":e.link,
                 "fecha":datetime.now(
                     ZoneInfo("America/Bogota")
                 ).strftime("%Y-%m-%d %H:%M")
             })
-
     df=pd.DataFrame(datos)
-
     if not df.empty:
-        df.drop_duplicates(subset=["titulo_original"], inplace=True)
-
+        df.drop_duplicates(subset=["titulo_original"],inplace=True)
     return df
 
-# -------- LIMPIEZA TOTAL --------
-def limpiar_dataframe(df):
-
-    # eliminar NaN, inf y objetos raros
-    df = df.replace([float("inf"), float("-inf")], "")
-    df = df.fillna("")
-    df = df.astype(str)
-
-    # limpiar caracteres problemáticos
-    for col in df.columns:
-        df[col] = df[col].apply(
-            lambda x: x.encode("utf-8","ignore").decode("utf-8")
-        )
-
+# ---------- LIMPIEZA SEGURA ----------
+def limpiar_df(df):
+    df=df.replace([float("inf"),float("-inf")],"")
+    df=df.fillna("")
+    for c in df.columns:
+        df[c]=df[c].astype(str)
     return df
 
-# -------- GUARDAR --------
-def guardar(df):
-
+# ---------- CONEXIÓN A SHEETS ----------
+def conectar():
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
     if not creds_json:
         enviar_telegram("❌ Falta GOOGLE_DRIVE_JSON")
-        return
+        return None,None
 
     creds=Credentials.from_service_account_info(
         json.loads(creds_json),
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
 
     client=gspread.authorize(creds)
-    sh=client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
 
-    # usar hoja existente
+    try:
+        sh=client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
+    except Exception as e:
+        enviar_telegram("❌ No puede abrir el Sheet. Revisa permisos.")
+        return None,None
+
+    # hoja segura
     try:
         ws=sh.worksheet("Tecnologia")
     except:
-        ws=sh.sheet1
-        enviar_telegram("⚠️ Hoja Tecnologia no existe, usando principal")
+        try:
+            ws=sh.add_worksheet(title="Tecnologia",rows="200",cols="10")
+        except:
+            ws=sh.sheet1
+            enviar_telegram("⚠️ Usando hoja principal")
+
+    return sh,ws
+
+# ---------- GUARDAR ----------
+def guardar(df):
+
+    sh,ws=conectar()
+    if ws is None:
+        return
 
     columnas=["medio","titulo_original","titulo_es","link","fecha"]
 
@@ -133,25 +129,28 @@ def guardar(df):
             df[c]=""
 
     df=df[columnas]
-    df=limpiar_dataframe(df)
+    df=limpiar_df(df)
 
-    existentes=ws.get_all_values()
+    try:
+        existentes=ws.get_all_values()
+        if existentes:
+            old=pd.DataFrame(existentes[1:],columns=existentes[0])
+            old=limpiar_df(old)
+            df=pd.concat([old,df],ignore_index=True)
+    except:
+        pass
 
-    if existentes:
-        old=pd.DataFrame(existentes[1:],columns=existentes[0])
-        old=limpiar_dataframe(old)
-        df=pd.concat([old,df],ignore_index=True)
+    df.drop_duplicates(subset=["titulo_original"],inplace=True)
 
-    df.drop_duplicates(subset=["titulo_original"], inplace=True)
+    data=[columnas]+df.values.tolist()
 
-    # construir lista segura (sin NaN jamás)
-    data=[columnas]
-    for row in df.itertuples(index=False):
-        data.append([str(x) if x is not None else "" for x in row])
+    try:
+        ws.update("A1",data)
+    except Exception as e:
+        enviar_telegram("❌ Error escribiendo en Sheets (permisos)")
+        return
 
-    ws.update(values=data, range_name="A1")
-
-# -------- MAIN --------
+# ---------- MAIN ----------
 def main():
 
     enviar_telegram("🌐 Monitoreo global protección infantil digital")
@@ -159,7 +158,7 @@ def main():
     df=recolectar()
 
     if df.empty:
-        enviar_telegram("⚠️ No se detectaron noticias relevantes")
+        enviar_telegram("⚠️ Sin noticias relevantes")
         return
 
     guardar(df)
