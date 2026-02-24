@@ -2,9 +2,7 @@ import feedparser
 import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import os
-import json
-import gspread
+import os, json, gspread
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
 
@@ -30,8 +28,8 @@ CLAVES=[
 def limpiar(t):
     return " ".join(str(t).replace("\n"," ").split())
 
-def relevante(texto):
-    return any(p in str(texto).lower() for p in CLAVES)
+def relevante(t):
+    return any(p in str(t).lower() for p in CLAVES)
 
 def traducir(t):
     try:
@@ -49,35 +47,25 @@ def recolectar():
             if not relevante(titulo):
                 continue
             datos.append({
-                "medio":medio,
-                "titulo_original":titulo,
-                "titulo_es":traducir(titulo),
-                "link":e.link,
+                "medio":str(medio),
+                "titulo_original":str(titulo),
+                "titulo_es":str(traducir(titulo)),
+                "link":str(e.link),
                 "fecha":datetime.now(
                     ZoneInfo("America/Bogota")
                 ).strftime("%Y-%m-%d %H:%M")
             })
-
     df=pd.DataFrame(datos)
     if not df.empty:
         df.drop_duplicates(subset=["titulo_original"],inplace=True)
     return df
 
-# ---------- LIMPIEZA ----------
-def limpiar_df(df):
-    df=df.replace([float("inf"),float("-inf")],"")
-    df=df.fillna("")
-    for c in df.columns:
-        df[c]=df[c].astype(str)
-    return df
-
-# ---------- GUARDAR ----------
-def guardar(df):
-
+# ---------- CONECTAR SHEETS ----------
+def conectar():
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
     if not creds_json:
-        print("❌ NO existe GOOGLE_DRIVE_JSON")
-        return
+        print("❌ Falta GOOGLE_DRIVE_JSON")
+        return None
 
     creds=Credentials.from_service_account_info(
         json.loads(creds_json),
@@ -88,12 +76,14 @@ def guardar(df):
     )
 
     client=gspread.authorize(creds)
+    return client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY").sheet1
 
-    # 🔴 AQUÍ ESTÁ LA CLAVE: abrir SIEMPRE el Sheet
-    sh=client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
+# ---------- GUARDAR ----------
+def guardar(df):
 
-    # usar hoja principal (siempre existe)
-    ws=sh.sheet1
+    ws=conectar()
+    if ws is None:
+        return
 
     columnas=["medio","titulo_original","titulo_es","link","fecha"]
 
@@ -102,22 +92,22 @@ def guardar(df):
             df[c]=""
 
     df=df[columnas]
-    df=limpiar_df(df)
 
-    existentes=ws.get_all_values()
+    # 🔴 construir lista segura sin NaN
+    data=[columnas]
 
-    if existentes:
-        old=pd.DataFrame(existentes[1:],columns=existentes[0])
-        old=limpiar_df(old)
-        df=pd.concat([old,df],ignore_index=True)
+    for _,row in df.iterrows():
+        fila=[]
+        for val in row:
+            if val is None:
+                fila.append("")
+            else:
+                fila.append(str(val))
+        data.append(fila)
 
-    df.drop_duplicates(subset=["titulo_original"],inplace=True)
+    ws.update(range_name="A1", values=data)
 
-    data=[columnas]+df.values.tolist()
-
-    ws.update("A1",data)
-
-    print("✅ ESCRITO EN GOOGLE SHEETS")
+    print("✅ Datos escritos en Google Sheets")
 
 # ---------- MAIN ----------
 def main():
@@ -130,7 +120,7 @@ def main():
 
     guardar(df)
 
-    print(f"✅ {len(df)} noticias enviadas a Sheets")
+    print(f"✅ {len(df)} noticias enviadas")
 
 if __name__=="__main__":
     main()
