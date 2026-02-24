@@ -16,8 +16,8 @@ def enviar_telegram(msg):
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": CHAT_ID, "text": msg}, timeout=10)
-    except Exception as e:
-        print("Telegram error:", e)
+    except:
+        pass
 
 # -------- FUENTES --------
 FUENTES = {
@@ -46,7 +46,7 @@ def limpiar(t):
     return " ".join(str(t).replace("\n"," ").split())
 
 def relevante(texto):
-    texto = str(texto).lower()
+    texto=str(texto).lower()
     return any(p in texto for p in CLAVES)
 
 def traducir(texto):
@@ -77,20 +77,6 @@ def recolectar():
     df.drop_duplicates(subset=["titulo_original"], inplace=True)
     return df
 
-# -------- LIMPIEZA SEGURA --------
-def limpiar_dataframe(df):
-
-    df=df.replace([float("inf"),float("-inf")],None)
-    df=df.where(pd.notnull(df),None)
-    df=df.astype(object).fillna("").astype(str)
-
-    for col in df.columns:
-        df[col]=df[col].apply(
-            lambda x: x.encode("utf-8","ignore").decode("utf-8") if isinstance(x,str) else x
-        )
-
-    return df
-
 # -------- GUARDAR --------
 def guardar(df):
 
@@ -114,7 +100,7 @@ def guardar(df):
         ws=sh.worksheet("Tecnologia")
     except:
         ws=sh.sheet1
-        enviar_telegram("⚠️ Usando hoja principal")
+        enviar_telegram("⚠️ Hoja Tecnologia no existe, usando principal")
 
     columnas=["medio","titulo_original","titulo_es","link","fecha"]
 
@@ -123,18 +109,20 @@ def guardar(df):
             df[c]=""
 
     df=df[columnas]
-    df=limpiar_dataframe(df)
 
-    existentes=ws.get_all_values()
+    # 🔵 CONVERSIÓN SEGURA ANTES DE ENVIAR
+    data=[columnas]
 
-    if existentes:
-        old=pd.DataFrame(existentes[1:],columns=existentes[0])
-        old=limpiar_dataframe(old)
-        df=pd.concat([old,df],ignore_index=True)
+    for row in df.itertuples(index=False):
+        fila=[]
+        for val in row:
+            if val is None:
+                fila.append("")
+            else:
+                fila.append(str(val))
+        data.append(fila)
 
-    df.drop_duplicates(subset=["titulo_original"], inplace=True)
-
-    ws.update(values=[columnas]+df.values.tolist(), range_name="A1")
+    ws.update(values=data, range_name="A1")
 
 # -------- MAIN --------
 def main():
