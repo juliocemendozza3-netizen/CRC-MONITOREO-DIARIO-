@@ -47,16 +47,13 @@ CLAVES = [
     "plataformas","regulación","internet","televisión"
 ]
 
-# -------- LIMPIAR --------
 def limpiar(t):
     return " ".join(str(t).replace("\n"," ").split())
 
-# -------- FILTRAR TEMÁTICA --------
 def relevante(texto):
     texto = str(texto).lower()
-    return any(p.lower() in texto for p in CLAVES)
+    return any(p in texto for p in CLAVES)
 
-# -------- TRADUCIR --------
 def traducir(texto):
     try:
         return GoogleTranslator(source="auto", target="es").translate(texto)
@@ -65,14 +62,12 @@ def traducir(texto):
 
 # -------- RECOLECTAR --------
 def recolectar():
-
     datos = []
 
     for medio, url in FUENTES.items():
         feed = feedparser.parse(url)
 
         for e in feed.entries:
-
             titulo = limpiar(e.title)
 
             if not relevante(titulo):
@@ -85,14 +80,16 @@ def recolectar():
                 "titulo_original": titulo,
                 "titulo_es": titulo_es,
                 "link": e.link,
-                "fecha": datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M")
+                "fecha": datetime.now(
+                    ZoneInfo("America/Bogota")
+                ).strftime("%Y-%m-%d %H:%M")
             })
 
     df = pd.DataFrame(datos)
     df.drop_duplicates(subset=["titulo_original"], inplace=True)
     return df
 
-# -------- GUARDAR --------
+# -------- GUARDAR EN SHEETS --------
 def guardar(df):
 
     creds_json = os.environ.get("GOOGLE_DRIVE_JSON")
@@ -102,36 +99,48 @@ def guardar(df):
 
     creds = Credentials.from_service_account_info(
         json.loads(creds_json),
-        scopes=["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
     )
 
-    ws = gspread.authorize(creds).open_by_key(
-        "1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY"
-    ).worksheet("Tecnologia")
+    client = gspread.authorize(creds)
+    sh = client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
 
-    columnas=["medio","titulo_original","titulo_es","link","fecha"]
+    # ✔ Crear hoja si no existe
+    try:
+        ws = sh.worksheet("Tecnologia")
+    except:
+        ws = sh.add_worksheet(title="Tecnologia", rows="200", cols="10")
+
+    columnas = ["medio","titulo_original","titulo_es","link","fecha"]
 
     for c in columnas:
         if c not in df.columns:
-            df[c]=""
+            df[c] = ""
 
-    df=df[columnas]
-    df=df.fillna("").astype(str)
+    df = df[columnas]
+
+    # ✔ limpieza anti error JSON definitivo
+    df = df.replace([float("inf"), float("-inf")], "")
+    df = df.fillna("")
+    df = df.astype(str)
 
     existentes = ws.get_all_values()
 
     if existentes:
-        old=pd.DataFrame(existentes[1:],columns=existentes[0])
-        df=pd.concat([old,df],ignore_index=True)
+        old = pd.DataFrame(existentes[1:], columns=existentes[0])
+        df = pd.concat([old, df], ignore_index=True)
 
     df.drop_duplicates(subset=["titulo_original"], inplace=True)
 
-    ws.update(values=[columnas]+df.values.tolist(), range_name="A1")
+    ws.update(values=[columnas] + df.values.tolist(), range_name="A1")
 
 # -------- MAIN --------
 def main():
 
-    enviar_telegram("🌐 Monitoreo global tecnología infantil")
+    enviar_telegram("🌐 Monitoreo global protección infantil digital")
 
     df = recolectar()
 
@@ -141,7 +150,7 @@ def main():
 
     guardar(df)
 
-    enviar_telegram(f"✅ {len(df)} noticias globales procesadas")
+    enviar_telegram(f"✅ {len(df)} noticias globales registradas")
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
