@@ -1,6 +1,5 @@
 import feedparser
 import pandas as pd
-import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
@@ -8,18 +7,6 @@ import json
 import gspread
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
-
-TOKEN="TU_TOKEN"
-CHAT_ID="TU_CHAT"
-
-def enviar_telegram(msg):
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            data={"chat_id":CHAT_ID,"text":msg},timeout=10
-        )
-    except:
-        pass
 
 # ---------- FUENTES ----------
 FUENTES={
@@ -39,12 +26,12 @@ CLAVES=[
     "plataformas","regulación","internet","televisión"
 ]
 
+# ---------- TEXTO ----------
 def limpiar(t):
     return " ".join(str(t).replace("\n"," ").split())
 
 def relevante(texto):
-    texto=str(texto).lower()
-    return any(p in texto for p in CLAVES)
+    return any(p in str(texto).lower() for p in CLAVES)
 
 def traducir(t):
     try:
@@ -59,7 +46,7 @@ def recolectar():
         feed=feedparser.parse(url)
         for e in feed.entries:
             titulo=limpiar(e.title)
-            if not relevante(titulo): 
+            if not relevante(titulo):
                 continue
             datos.append({
                 "medio":medio,
@@ -70,12 +57,13 @@ def recolectar():
                     ZoneInfo("America/Bogota")
                 ).strftime("%Y-%m-%d %H:%M")
             })
+
     df=pd.DataFrame(datos)
     if not df.empty:
         df.drop_duplicates(subset=["titulo_original"],inplace=True)
     return df
 
-# ---------- LIMPIEZA SEGURA ----------
+# ---------- LIMPIEZA ----------
 def limpiar_df(df):
     df=df.replace([float("inf"),float("-inf")],"")
     df=df.fillna("")
@@ -83,44 +71,29 @@ def limpiar_df(df):
         df[c]=df[c].astype(str)
     return df
 
-# ---------- CONEXIÓN A SHEETS ----------
-def conectar():
+# ---------- GUARDAR ----------
+def guardar(df):
+
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
     if not creds_json:
-        enviar_telegram("❌ Falta GOOGLE_DRIVE_JSON")
-        return None,None
+        print("❌ NO existe GOOGLE_DRIVE_JSON")
+        return
 
     creds=Credentials.from_service_account_info(
         json.loads(creds_json),
-        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
     )
 
     client=gspread.authorize(creds)
 
-    try:
-        sh=client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
-    except Exception as e:
-        enviar_telegram("❌ No puede abrir el Sheet. Revisa permisos.")
-        return None,None
+    # 🔴 AQUÍ ESTÁ LA CLAVE: abrir SIEMPRE el Sheet
+    sh=client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
 
-    # hoja segura
-    try:
-        ws=sh.worksheet("Tecnologia")
-    except:
-        try:
-            ws=sh.add_worksheet(title="Tecnologia",rows="200",cols="10")
-        except:
-            ws=sh.sheet1
-            enviar_telegram("⚠️ Usando hoja principal")
-
-    return sh,ws
-
-# ---------- GUARDAR ----------
-def guardar(df):
-
-    sh,ws=conectar()
-    if ws is None:
-        return
+    # usar hoja principal (siempre existe)
+    ws=sh.sheet1
 
     columnas=["medio","titulo_original","titulo_es","link","fecha"]
 
@@ -131,39 +104,33 @@ def guardar(df):
     df=df[columnas]
     df=limpiar_df(df)
 
-    try:
-        existentes=ws.get_all_values()
-        if existentes:
-            old=pd.DataFrame(existentes[1:],columns=existentes[0])
-            old=limpiar_df(old)
-            df=pd.concat([old,df],ignore_index=True)
-    except:
-        pass
+    existentes=ws.get_all_values()
+
+    if existentes:
+        old=pd.DataFrame(existentes[1:],columns=existentes[0])
+        old=limpiar_df(old)
+        df=pd.concat([old,df],ignore_index=True)
 
     df.drop_duplicates(subset=["titulo_original"],inplace=True)
 
     data=[columnas]+df.values.tolist()
 
-    try:
-        ws.update("A1",data)
-    except Exception as e:
-        enviar_telegram("❌ Error escribiendo en Sheets (permisos)")
-        return
+    ws.update("A1",data)
+
+    print("✅ ESCRITO EN GOOGLE SHEETS")
 
 # ---------- MAIN ----------
 def main():
 
-    enviar_telegram("🌐 Monitoreo global protección infantil digital")
-
     df=recolectar()
 
     if df.empty:
-        enviar_telegram("⚠️ Sin noticias relevantes")
+        print("⚠️ No hay noticias relevantes")
         return
 
     guardar(df)
 
-    enviar_telegram(f"✅ {len(df)} noticias registradas")
+    print(f"✅ {len(df)} noticias enviadas a Sheets")
 
 if __name__=="__main__":
     main()
