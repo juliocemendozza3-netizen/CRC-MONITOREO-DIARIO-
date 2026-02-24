@@ -16,8 +16,8 @@ def enviar_telegram(msg):
     try:
         url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": CHAT_ID, "text": msg}, timeout=10)
-    except:
-        pass
+    except Exception as e:
+        print("Telegram error:", e)
 
 # -------- FUENTES TECNOLOGÍA INTERNACIONAL --------
 FUENTES = {
@@ -46,6 +46,7 @@ CLAVES = [
     "plataformas","regulación","internet","televisión"
 ]
 
+# -------- LIMPIAR TEXTO --------
 def limpiar(t):
     return " ".join(str(t).replace("\n"," ").split())
 
@@ -56,12 +57,13 @@ def relevante(texto):
 def traducir(texto):
     try:
         return GoogleTranslator(source="auto", target="es").translate(texto)
-    except:
+    except Exception:
         return texto
 
 # -------- RECOLECTAR --------
 def recolectar():
     datos = []
+
     for medio, url in FUENTES.items():
         feed = feedparser.parse(url)
 
@@ -85,6 +87,25 @@ def recolectar():
     df.drop_duplicates(subset=["titulo_original"], inplace=True)
     return df
 
+# -------- LIMPIEZA DEFINITIVA --------
+def limpiar_dataframe(df):
+
+    # eliminar infinitos
+    df = df.replace([float("inf"), float("-inf")], None)
+
+    # eliminar NaN reales
+    df = df.where(pd.notnull(df), None)
+
+    # convertir a texto seguro
+    df = df.astype(object).fillna("").astype(str)
+
+    # limpiar caracteres inválidos UTF
+    df = df.applymap(
+        lambda x: x.encode("utf-8","ignore").decode("utf-8") if isinstance(x,str) else x
+    )
+
+    return df
+
 # -------- GUARDAR EN SHEETS --------
 def guardar(df):
 
@@ -104,14 +125,12 @@ def guardar(df):
     client = gspread.authorize(creds)
     sh = client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
 
-    # ✔ BUSCAR HOJA SIN CREARLA AUTOMÁTICAMENTE
-    # (si no existe, usamos la primera hoja para evitar error 403)
-
+    # usar hoja existente o principal
     try:
         ws = sh.worksheet("Tecnologia")
     except:
         ws = sh.sheet1
-        enviar_telegram("⚠️ Hoja 'Tecnologia' no existe, usando hoja principal")
+        enviar_telegram("⚠️ Usando hoja principal")
 
     columnas = ["medio","titulo_original","titulo_es","link","fecha"]
 
@@ -121,15 +140,14 @@ def guardar(df):
 
     df = df[columnas]
 
-    # ✔ limpieza total
-    df = df.replace([float("inf"), float("-inf")], "")
-    df = df.fillna("")
-    df = df.astype(str)
+    # limpieza segura
+    df = limpiar_dataframe(df)
 
     existentes = ws.get_all_values()
 
     if existentes:
         old = pd.DataFrame(existentes[1:], columns=existentes[0])
+        old = limpiar_dataframe(old)
         df = pd.concat([old, df], ignore_index=True)
 
     df.drop_duplicates(subset=["titulo_original"], inplace=True)
