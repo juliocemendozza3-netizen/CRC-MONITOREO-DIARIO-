@@ -46,7 +46,7 @@ def limpiar(t):
     return " ".join(str(t).replace("\n"," ").split())
 
 def relevante(texto):
-    texto=str(texto).lower()
+    texto = str(texto).lower()
     return any(p in texto for p in CLAVES)
 
 def traducir(texto):
@@ -60,21 +60,44 @@ def recolectar():
     datos=[]
     for medio,url in FUENTES.items():
         feed=feedparser.parse(url)
+
         for e in feed.entries:
             titulo=limpiar(e.title)
+
             if not relevante(titulo):
                 continue
+
             datos.append({
-                "medio":medio,
-                "titulo_original":titulo,
-                "titulo_es":traducir(titulo),
-                "link":e.link,
+                "medio":str(medio),
+                "titulo_original":str(titulo),
+                "titulo_es":str(traducir(titulo)),
+                "link":str(e.link),
                 "fecha":datetime.now(
                     ZoneInfo("America/Bogota")
                 ).strftime("%Y-%m-%d %H:%M")
             })
+
     df=pd.DataFrame(datos)
-    df.drop_duplicates(subset=["titulo_original"], inplace=True)
+
+    if not df.empty:
+        df.drop_duplicates(subset=["titulo_original"], inplace=True)
+
+    return df
+
+# -------- LIMPIEZA TOTAL --------
+def limpiar_dataframe(df):
+
+    # eliminar NaN, inf y objetos raros
+    df = df.replace([float("inf"), float("-inf")], "")
+    df = df.fillna("")
+    df = df.astype(str)
+
+    # limpiar caracteres problemáticos
+    for col in df.columns:
+        df[col] = df[col].apply(
+            lambda x: x.encode("utf-8","ignore").decode("utf-8")
+        )
+
     return df
 
 # -------- GUARDAR --------
@@ -96,6 +119,7 @@ def guardar(df):
     client=gspread.authorize(creds)
     sh=client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
 
+    # usar hoja existente
     try:
         ws=sh.worksheet("Tecnologia")
     except:
@@ -109,18 +133,21 @@ def guardar(df):
             df[c]=""
 
     df=df[columnas]
+    df=limpiar_dataframe(df)
 
-    # 🔵 CONVERSIÓN SEGURA ANTES DE ENVIAR
+    existentes=ws.get_all_values()
+
+    if existentes:
+        old=pd.DataFrame(existentes[1:],columns=existentes[0])
+        old=limpiar_dataframe(old)
+        df=pd.concat([old,df],ignore_index=True)
+
+    df.drop_duplicates(subset=["titulo_original"], inplace=True)
+
+    # construir lista segura (sin NaN jamás)
     data=[columnas]
-
     for row in df.itertuples(index=False):
-        fila=[]
-        for val in row:
-            if val is None:
-                fila.append("")
-            else:
-                fila.append(str(val))
-        data.append(fila)
+        data.append([str(x) if x is not None else "" for x in row])
 
     ws.update(values=data, range_name="A1")
 
