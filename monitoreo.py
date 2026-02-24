@@ -37,7 +37,6 @@ FUENTES = {
         "https://www.theverge.com/rss/policy/index.xml"
 }
 
-# -------- PALABRAS CLAVE PROTECCIÓN INFANTIL --------
 CLAVES = [
     "children","child","kids","minor","youth","teen",
     "privacy","data protection","platform regulation",
@@ -63,7 +62,6 @@ def traducir(texto):
 # -------- RECOLECTAR --------
 def recolectar():
     datos = []
-
     for medio, url in FUENTES.items():
         feed = feedparser.parse(url)
 
@@ -73,12 +71,10 @@ def recolectar():
             if not relevante(titulo):
                 continue
 
-            titulo_es = traducir(titulo)
-
             datos.append({
                 "medio": medio,
                 "titulo_original": titulo,
-                "titulo_es": titulo_es,
+                "titulo_es": traducir(titulo),
                 "link": e.link,
                 "fecha": datetime.now(
                     ZoneInfo("America/Bogota")
@@ -94,7 +90,7 @@ def guardar(df):
 
     creds_json = os.environ.get("GOOGLE_DRIVE_JSON")
     if not creds_json:
-        enviar_telegram("❌ Sin credenciales Google")
+        enviar_telegram("❌ Falta GOOGLE_DRIVE_JSON")
         return
 
     creds = Credentials.from_service_account_info(
@@ -108,11 +104,14 @@ def guardar(df):
     client = gspread.authorize(creds)
     sh = client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
 
-    # ✔ Crear hoja si no existe
+    # ✔ BUSCAR HOJA SIN CREARLA AUTOMÁTICAMENTE
+    # (si no existe, usamos la primera hoja para evitar error 403)
+
     try:
         ws = sh.worksheet("Tecnologia")
     except:
-        ws = sh.add_worksheet(title="Tecnologia", rows="200", cols="10")
+        ws = sh.sheet1
+        enviar_telegram("⚠️ Hoja 'Tecnologia' no existe, usando hoja principal")
 
     columnas = ["medio","titulo_original","titulo_es","link","fecha"]
 
@@ -122,7 +121,7 @@ def guardar(df):
 
     df = df[columnas]
 
-    # ✔ limpieza anti error JSON definitivo
+    # ✔ limpieza total
     df = df.replace([float("inf"), float("-inf")], "")
     df = df.fillna("")
     df = df.astype(str)
@@ -150,7 +149,7 @@ def main():
 
     guardar(df)
 
-    enviar_telegram(f"✅ {len(df)} noticias globales registradas")
+    enviar_telegram(f"✅ {len(df)} noticias registradas")
 
 if __name__ == "__main__":
     main()
