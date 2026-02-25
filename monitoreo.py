@@ -2,9 +2,10 @@ import feedparser
 import pandas as pd
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-import os, json, gspread
+import os, json, gspread, requests
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
+
 
 # ---------- METADATOS REGULADORES ----------
 META={
@@ -23,6 +24,7 @@ META={
     "PRAI":{"pais":"Latinoamérica","region":"Latinoamérica","tipo":"Programa regional"}
 }
 
+
 # ---------- FUENTES ----------
 FUENTES={
     "CRC":"https://news.google.com/rss/search?q=CRC+Colombia+regulación+telecomunicaciones&hl=es&gl=CO&ceid=CO:es",
@@ -39,6 +41,7 @@ FUENTES={
     "Regulatel":"https://news.google.com/rss/search?q=Regulatel+telecomunicaciones&hl=es&gl=CO&ceid=CO:es",
     "PRAI":"https://news.google.com/rss/search?q=PRAI+infancia+televisión+educativa&hl=es&gl=CO&ceid=CO:es"
 }
+
 
 # ---------- PALABRAS CLAVE ----------
 CLAVES=[
@@ -59,6 +62,7 @@ TIPO_POLITICA={
     "guideline":"Guía",
     "framework":"Marco regulatorio"
 }
+
 
 # ---------- UTILIDADES ----------
 def limpiar(t):
@@ -87,12 +91,23 @@ def es_reciente(entry):
     if hasattr(entry,"published_parsed") and entry.published_parsed:
         fecha=datetime(*entry.published_parsed[:6])
         return fecha>=datetime.now()-timedelta(days=7)
-    return True
+    return False
+
+def link_valido(url):
+    try:
+        r=requests.get(url,timeout=6,headers={"User-Agent":"Mozilla/5.0"})
+        return r.status_code==200
+    except:
+        return False
+
 
 # ---------- RECOLECTAR ----------
 def recolectar():
+
     datos=[]
+
     for reg,url in FUENTES.items():
+
         feed=feedparser.parse(url)
 
         for e in feed.entries:
@@ -103,6 +118,9 @@ def recolectar():
             titulo=limpiar(e.title)
 
             if not relevante(titulo):
+                continue
+
+            if not link_valido(e.link):
                 continue
 
             meta=META.get(reg,{"pais":"Internacional","region":"Global","tipo":"Otro"})
@@ -116,9 +134,7 @@ def recolectar():
                 "titulo_original":titulo,
                 "titulo_es":traducir(titulo),
                 "link":e.link,
-                "fecha":datetime.now(
-                    ZoneInfo("America/Bogota")
-                ).strftime("%Y-%m-%d %H:%M")
+                "fecha":datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M")
             })
 
     df=pd.DataFrame(datos)
@@ -127,6 +143,7 @@ def recolectar():
         df.drop_duplicates(subset=["titulo_original"],inplace=True)
 
     return df
+
 
 # ---------- CONECTAR SHEETS ----------
 def conectar():
@@ -144,6 +161,7 @@ def conectar():
 
     return sh.sheet1
 
+
 # ---------- GUARDAR ----------
 def guardar(df):
 
@@ -160,6 +178,7 @@ def guardar(df):
 
     print("✅ Monitoreo CRC actualizado")
 
+
 # ---------- MAIN ----------
 def main():
 
@@ -172,6 +191,7 @@ def main():
     guardar(df)
 
     print(f"✅ {len(df)} noticias procesadas")
+
 
 if __name__=="__main__":
     main()
