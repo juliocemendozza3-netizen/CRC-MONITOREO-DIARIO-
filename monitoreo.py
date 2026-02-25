@@ -47,10 +47,10 @@ def recolectar():
             if not relevante(titulo):
                 continue
             datos.append({
-                "medio":str(medio),
-                "titulo_original":str(titulo),
-                "titulo_es":str(traducir(titulo)),
-                "link":str(e.link),
+                "medio":medio,
+                "titulo_original":titulo,
+                "titulo_es":traducir(titulo),
+                "link":e.link,
                 "fecha":datetime.now(
                     ZoneInfo("America/Bogota")
                 ).strftime("%Y-%m-%d %H:%M")
@@ -60,30 +60,27 @@ def recolectar():
         df.drop_duplicates(subset=["titulo_original"],inplace=True)
     return df
 
-# ---------- CONECTAR SHEETS ----------
+# ---------- CONECTAR ----------
 def conectar():
+
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
     if not creds_json:
-        print("❌ Falta GOOGLE_DRIVE_JSON")
-        return None
+        raise Exception("Falta GOOGLE_DRIVE_JSON en GitHub")
 
     creds=Credentials.from_service_account_info(
         json.loads(creds_json),
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
 
     client=gspread.authorize(creds)
-    return client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY").sheet1
+    sh=client.open_by_key("1Lq0tTUSnsBAoJ7OClP8DsdvPcNuCI3Fdviup-gBAteY")
+
+    return sh.sheet1
 
 # ---------- GUARDAR ----------
 def guardar(df):
 
     ws=conectar()
-    if ws is None:
-        return
 
     columnas=["medio","titulo_original","titulo_es","link","fecha"]
 
@@ -91,19 +88,9 @@ def guardar(df):
         if c not in df.columns:
             df[c]=""
 
-    df=df[columnas]
+    df=df[columnas].fillna("").astype(str)
 
-    # 🔴 construir lista segura sin NaN
-    data=[columnas]
-
-    for _,row in df.iterrows():
-        fila=[]
-        for val in row:
-            if val is None:
-                fila.append("")
-            else:
-                fila.append(str(val))
-        data.append(fila)
+    data=[columnas]+df.values.tolist()
 
     ws.update(range_name="A1", values=data)
 
