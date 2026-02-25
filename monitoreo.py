@@ -8,23 +8,54 @@ from deep_translator import GoogleTranslator
 from dateutil import parser as dateparser
 
 
-# ---------- FUENTES ----------
-FUENTES={
-    "ITU":"https://news.google.com/rss/search?q=ITU+children+digital+safety&hl=en&gl=US&ceid=US:en",
-    "OECD":"https://news.google.com/rss/search?q=OECD+children+online+safety+policy&hl=en&gl=US&ceid=US:en",
-    "UNICEF":"https://news.google.com/rss/search?q=UNICEF+internet+children+policy&hl=en&gl=US&ceid=US:en",
-    "UNESCO":"https://news.google.com/rss/search?q=UNESCO+media+literacy+children+digital&hl=en&gl=US&ceid=US:en",
-    "Ofcom":"https://news.google.com/rss/search?q=Ofcom+online+safety+children&hl=en-GB&gl=GB&ceid=GB:en",
-    "FCC":"https://news.google.com/rss/search?q=FCC+children+internet+policy&hl=en-US&gl=US&ceid=US:en",
-    "FTC":"https://news.google.com/rss/search?q=FTC+children+privacy+online&hl=en-US&gl=US&ceid=US:en",
-    "eSafety Commissioner":"https://news.google.com/rss/search?q=Australia+eSafety+Commissioner+children&hl=en-AU&gl=AU&ceid=AU:en",
-    "KCC":"https://news.google.com/rss/search?q=Korea+Communications+Commission+children+internet&hl=en&gl=KR&ceid=KR:en",
-    "CAC China":"https://news.google.com/rss/search?q=China+internet+regulation+children+gaming&hl=en&gl=CN&ceid=CN:en",
-    "Regulatel":"https://news.google.com/rss/search?q=Regulatel+Latin+America+telecom+children&hl=es&gl=CO&ceid=CO:es",
-    "PRAI":"https://news.google.com/rss/search?q=programa+regional+audiovisual+infantil+PRAI&hl=es&gl=CO&ceid=CO:es"
+# ---------- FUENTES REGULADORES ----------
+FUENTES = {
+
+    # COLOMBIA
+    "CRC Colombia":
+        "https://news.google.com/rss/search?q=CRC+Colombia+regulación+digital+menores&hl=es&gl=CO&ceid=CO:es",
+
+    # GLOBAL
+    "UIT":
+        "https://news.google.com/rss/search?q=ITU+children+digital+safety&hl=en&gl=US&ceid=US:en",
+    "OCDE":
+        "https://news.google.com/rss/search?q=OECD+children+online+safety+policy&hl=en&gl=US&ceid=US:en",
+    "UNICEF":
+        "https://news.google.com/rss/search?q=UNICEF+internet+children+policy&hl=en&gl=US&ceid=US:en",
+    "UNESCO":
+        "https://news.google.com/rss/search?q=UNESCO+media+literacy+children+digital&hl=en&gl=US&ceid=US:en",
+
+    # UK
+    "Ofcom":
+        "https://news.google.com/rss/search?q=Ofcom+online+safety+children&hl=en-GB&gl=GB&ceid=GB:en",
+
+    # USA
+    "FCC":
+        "https://news.google.com/rss/search?q=FCC+children+internet+policy&hl=en-US&gl=US&ceid=US:en",
+    "FTC":
+        "https://news.google.com/rss/search?q=FTC+children+privacy+online&hl=en-US&gl=US&ceid=US:en",
+
+    # AUSTRALIA
+    "eSafety Commissioner":
+        "https://news.google.com/rss/search?q=Australia+eSafety+Commissioner+children&hl=en-AU&gl=AU&ceid=AU:en",
+
+    # COREA
+    "KCC":
+        "https://news.google.com/rss/search?q=Korea+Communications+Commission+children+internet&hl=en&gl=KR&ceid=KR:en",
+
+    # CHINA
+    "CAC China":
+        "https://news.google.com/rss/search?q=China+internet+regulation+children+gaming&hl=en&gl=CN&ceid=CN:en",
+
+    # LATAM
+    "Regulatel":
+        "https://news.google.com/rss/search?q=Regulatel+telecom+children&hl=es&gl=CO&ceid=CO:es",
+    "PRAI":
+        "https://news.google.com/rss/search?q=programa+regional+audiovisual+infantil+PRAI&hl=es&gl=CO&ceid=CO:es"
 }
 
-CLAVES=[
+
+CLAVES = [
     "children","child","kids","minor","youth","teen",
     "privacy","data protection","platform regulation",
     "online safety","digital safety","content moderation",
@@ -34,54 +65,48 @@ CLAVES=[
 ]
 
 
-# ---------- TEXTO ----------
-def limpiar(t):
-    return " ".join(str(t).replace("\n"," ").split())
+# ---------- FUNCIONES TEXTO ----------
+def limpiar(texto):
+    return " ".join(str(texto).replace("\n"," ").split())
 
-def traducir(t):
+def traducir(texto):
     try:
-        return GoogleTranslator(source="auto",target="es").translate(t)
+        return GoogleTranslator(source="auto", target="es").translate(texto)
     except:
-        return t
+        return texto
 
-def relevante(t):
-    return any(p in str(t).lower() for p in CLAVES)
+def relevante(texto):
+    return any(p in str(texto).lower() for p in CLAVES)
 
 
-# ---------- FILTRO SEMANA ESTRICTO ----------
-def es_de_la_semana(entry):
+# ---------- FILTRO SEMANA ----------
+def es_reciente(entry):
 
     fecha_raw = entry.get("published") or entry.get("updated")
-
-    # si no hay fecha → descartamos
     if not fecha_raw:
         return False
 
     try:
         fecha = dateparser.parse(fecha_raw)
-
         ahora = datetime.now(ZoneInfo("America/Bogota"))
         limite = ahora - timedelta(days=7)
-
         return fecha >= limite
-
     except:
         return False
 
 
 # ---------- LIMPIAR TITULO Y FUENTE ----------
-def limpiar_titulo_y_fuente(titulo, regulador):
+def limpiar_titulo_fuente(titulo, regulador):
 
-    titulo=limpiar(titulo)
-    separadores=[" - "," | "," — "," – "]
+    titulo = limpiar(titulo)
+    separadores = [" - "," | "," — "," – "]
 
     for sep in separadores:
         if sep in titulo:
-            partes=titulo.rsplit(sep,1)
-            posible_fuente=partes[1].strip()
+            partes = titulo.rsplit(sep,1)
+            posible_fuente = partes[1].strip()
 
-            # si parece nombre de medio, lo usamos
-            if len(posible_fuente.split())<=4:
+            if len(posible_fuente.split()) <= 4:
                 return partes[0].strip(), posible_fuente
 
     return titulo, regulador
@@ -90,38 +115,37 @@ def limpiar_titulo_y_fuente(titulo, regulador):
 # ---------- RECOLECTAR ----------
 def recolectar():
 
-    datos=[]
+    datos = []
 
-    for regulador,url in FUENTES.items():
+    for regulador, url in FUENTES.items():
 
-        feed=feedparser.parse(url)
+        feed = feedparser.parse(url)
 
         for e in feed.entries:
 
-            # 🔴 FILTRO SEMANA REAL
-            if not es_de_la_semana(e):
+            if not es_reciente(e):
                 continue
 
-            titulo_limpio, fuente = limpiar_titulo_y_fuente(e.title, regulador)
+            titulo_limpio, fuente = limpiar_titulo_fuente(e.title, regulador)
 
             if not relevante(titulo_limpio):
                 continue
 
             datos.append({
-                "regulador":regulador,
-                "fuente":fuente,
-                "titulo_original":titulo_limpio,
-                "titulo_es":traducir(titulo_limpio),
-                "link":str(e.link),
-                "fecha_captura":datetime.now(
+                "regulador": regulador,
+                "fuente": fuente,
+                "titulo_original": titulo_limpio,
+                "titulo_es": traducir(titulo_limpio),
+                "link": e.link,
+                "fecha_captura": datetime.now(
                     ZoneInfo("America/Bogota")
                 ).strftime("%Y-%m-%d %H:%M")
             })
 
-    df=pd.DataFrame(datos)
+    df = pd.DataFrame(datos)
 
     if not df.empty:
-        df.drop_duplicates(subset=["titulo_original"],inplace=True)
+        df.drop_duplicates(subset=["titulo_original"], inplace=True)
 
     return df
 
@@ -129,54 +153,57 @@ def recolectar():
 # ---------- CONECTAR SHEETS ----------
 def conectar():
 
-    creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
+    creds_json = os.environ.get("GOOGLE_DRIVE_JSON")
     if not creds_json:
         raise Exception("Falta GOOGLE_DRIVE_JSON")
 
-    creds=Credentials.from_service_account_info(
+    creds = Credentials.from_service_account_info(
         json.loads(creds_json),
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
 
-    client=gspread.authorize(creds)
-    sh=client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
+    client = gspread.authorize(creds)
+    sh = client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
 
     return sh.sheet1
 
 
-# ---------- GUARDAR ----------
+# ---------- GUARDAR (SOBRESCRIBE SOLO SEMANA) ----------
 def guardar(df):
 
-    ws=conectar()
+    ws = conectar()
 
-    columnas=["regulador","fuente","titulo_original","titulo_es","link","fecha_captura"]
+    columnas = [
+        "regulador","fuente",
+        "titulo_original","titulo_es",
+        "link","fecha_captura"
+    ]
 
-    for c in columnas:
-        if c not in df.columns:
-            df[c]=""
+    df = df[columnas].fillna("").astype(str)
 
-    df=df[columnas].fillna("").astype(str)
+    # 🔴 AQUÍ ESTÁ LA CLAVE:
+    # Se reemplaza TODO el contenido por solo noticias recientes
+    data = [columnas] + df.values.tolist()
 
-    data=[columnas]+df.values.tolist()
-
+    ws.clear()
     ws.update(range_name="A1", values=data)
 
-    print("✅ Datos escritos en Google Sheets")
+    print("✅ Sheet actualizado SOLO con noticias de la última semana")
 
 
 # ---------- MAIN ----------
 def main():
 
-    df=recolectar()
+    df = recolectar()
 
     if df.empty:
-        print("⚠️ No hay noticias de la última semana")
+        print("⚠️ No hay noticias recientes")
         return
 
     guardar(df)
 
-    print(f"✅ {len(df)} noticias recientes enviadas")
+    print(f"✅ {len(df)} noticias vigentes enviadas")
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
