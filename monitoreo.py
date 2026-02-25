@@ -53,6 +53,7 @@ CLAVES=[
     "plataformas","regulación","internet","televisión"
 ]
 
+
 TIPO_POLITICA={
     "ley":"Legislación",
     "law":"Legislación",
@@ -93,10 +94,21 @@ def es_reciente(entry):
         return fecha>=datetime.now()-timedelta(days=7)
     return False
 
+
+# 🔴 VALIDACIÓN ROBUSTA DE LINKS
 def link_valido(url):
     try:
-        r=requests.get(url,timeout=6,headers={"User-Agent":"Mozilla/5.0"})
-        return r.status_code==200
+        # primero intento HEAD (más rápido)
+        r=requests.head(url,timeout=5,allow_redirects=True,
+                        headers={"User-Agent":"Mozilla/5.0"})
+        if r.status_code<400:
+            return True
+
+        # si falla HEAD intento GET
+        r=requests.get(url,timeout=6,allow_redirects=True,
+                       headers={"User-Agent":"Mozilla/5.0"})
+        return r.status_code<400
+
     except:
         return False
 
@@ -149,6 +161,8 @@ def recolectar():
 def conectar():
 
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
+    if not creds_json:
+        raise Exception("Falta GOOGLE_DRIVE_JSON")
 
     creds=Credentials.from_service_account_info(
         json.loads(creds_json),
@@ -156,7 +170,6 @@ def conectar():
     )
 
     client=gspread.authorize(creds)
-
     sh=client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
 
     return sh.sheet1
@@ -195,3 +208,4 @@ def main():
 
 if __name__=="__main__":
     main()
+
