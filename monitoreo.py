@@ -2,218 +2,149 @@ import feedparser
 import pandas as pd
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import requests
 import os, json, gspread
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
-from dateutil import parser as dateparser
 
+# -------- CONFIG --------
+SHEET_ID="1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw"
 
-# ---------- FUENTES ----------
-FUENTES = {
-
-    "CRC Colombia":
-        "https://news.google.com/rss/search?q=CRC+Colombia+regulación+digital+menores&hl=es&gl=CO&ceid=CO:es",
-
-    "UIT":
-        "https://news.google.com/rss/search?q=ITU+children+digital+safety&hl=en&gl=US&ceid=US:en",
-
-    "OCDE":
-        "https://news.google.com/rss/search?q=OECD+children+online+safety+policy&hl=en&gl=US&ceid=US:en",
-
-    "UNICEF":
-        "https://news.google.com/rss/search?q=UNICEF+internet+children+policy&hl=en&gl=US&ceid=US:en",
-
-    "UNESCO":
-        "https://news.google.com/rss/search?q=UNESCO+media+literacy+children+digital&hl=en&gl=US&ceid=US:en",
-
-    "Ofcom":
-        "https://news.google.com/rss/search?q=Ofcom+online+safety+children&hl=en-GB&gl=GB&ceid=GB:en",
-
-    "FCC":
-        "https://news.google.com/rss/search?q=FCC+children+internet+policy&hl=en-US&gl=US&ceid=US:en",
-
-    "FTC":
-        "https://news.google.com/rss/search?q=FTC+children+privacy+online&hl=en-US&gl=US&ceid=US:en",
-
-    "eSafety Commissioner":
-        "https://news.google.com/rss/search?q=Australia+eSafety+Commissioner+children&hl=en-AU&gl=AU&ceid=AU:en",
-
-    "KCC":
-        "https://news.google.com/rss/search?q=Korea+Communications+Commission+children+internet&hl=en&gl=KR&ceid=KR:en",
-
-    "CAC China":
-        "https://news.google.com/rss/search?q=China+internet+regulation+children+gaming&hl=en&gl=CN&ceid=CN:en",
-
-    "Regulatel":
-        "https://news.google.com/rss/search?q=Regulatel+telecom+children&hl=es&gl=CO&ceid=CO:es",
-
-    "PRAI":
-        "https://news.google.com/rss/search?q=programa+regional+audiovisual+infantil+PRAI&hl=es&gl=CO&ceid=CO:es"
+# -------- FUENTES REGULADORES --------
+FUENTES={
+    "CRC":"https://news.google.com/rss/search?q=CRC+Colombia+regulación+telecomunicaciones&hl=es&gl=CO&ceid=CO:es",
+    "ITU":"https://news.google.com/rss/search?q=ITU+children+digital+safety&hl=en&gl=US&ceid=US:en",
+    "OECD":"https://news.google.com/rss/search?q=OECD+children+online+safety+policy&hl=en&gl=US&ceid=US:en",
+    "UNICEF":"https://news.google.com/rss/search?q=UNICEF+internet+children+policy&hl=en&gl=US&ceid=US:en",
+    "UNESCO":"https://news.google.com/rss/search?q=UNESCO+media+literacy+children+digital&hl=en&gl=US&ceid=US:en",
+    "Ofcom":"https://news.google.com/rss/search?q=Ofcom+online+safety+children&hl=en-GB&gl=GB&ceid=GB:en",
+    "FCC":"https://news.google.com/rss/search?q=FCC+children+internet+policy&hl=en-US&gl=US&ceid=US:en",
+    "FTC":"https://news.google.com/rss/search?q=FTC+children+privacy+online&hl=en-US&gl=US&ceid=US:en",
+    "Australia eSafety":"https://news.google.com/rss/search?q=eSafety+Commissioner+children&hl=en-AU&gl=AU&ceid=AU:en",
+    "Korea KCC":"https://news.google.com/rss/search?q=Korea+Communications+Commission+children&hl=en&gl=KR&ceid=KR:en",
+    "China CAC":"https://news.google.com/rss/search?q=China+internet+regulation+children&hl=en&gl=CN&ceid=CN:en",
+    "Regulatel":"https://news.google.com/rss/search?q=Regulatel+telecomunicaciones+niños&hl=es&gl=CO&ceid=CO:es",
+    "PRAI":"https://news.google.com/rss/search?q=PRAI+programa+regional+audiovisual+infantil&hl=es&gl=CO&ceid=CO:es"
 }
 
-
-# ---------- MAPA REGULADOR → PAÍS ----------
-PAISES = {
-    "CRC Colombia":"Colombia",
-    "Ofcom":"Reino Unido",
-    "FCC":"Estados Unidos",
-    "FTC":"Estados Unidos",
-    "eSafety Commissioner":"Australia",
-    "KCC":"Corea del Sur",
-    "CAC China":"China",
-    "Regulatel":"Latinoamérica",
-    "PRAI":"Latinoamérica",
-    "UIT":"Internacional",
-    "OCDE":"Internacional",
-    "UNICEF":"Internacional",
-    "UNESCO":"Internacional"
-}
-
-
-CLAVES = [
+CLAVES=[
     "children","child","kids","minor","youth","teen",
     "privacy","data protection","platform regulation",
     "online safety","digital safety","content moderation",
-    "ai regulation","screen time","parental control",
     "niños","infancia","menores","protección digital",
     "plataformas","regulación","internet","televisión"
 ]
 
+# -------- FUNCIONES TEXTO --------
+def limpiar_titulo(t):
+    t=str(t).replace("\n"," ").strip()
+    if " - " in t:
+        t=t.rsplit(" - ",1)[0]   # quita fuente del final
+    return t
 
-# ---------- TEXTO ----------
-def limpiar(texto):
-    return " ".join(str(texto).replace("\n"," ").split())
-
-def traducir(texto):
+def traducir(t):
     try:
-        return GoogleTranslator(source="auto", target="es").translate(texto)
+        return GoogleTranslator(source="auto",target="es").translate(t)
     except:
-        return texto
+        return t
 
-def relevante(texto):
-    return any(p in str(texto).lower() for p in CLAVES)
+def es_relevante(t):
+    return any(p in str(t).lower() for p in CLAVES)
 
-
-# ---------- FILTRO SEMANA ----------
 def es_reciente(entry):
-    fecha_raw = entry.get("published") or entry.get("updated")
-    if not fecha_raw:
-        return False
+    if not hasattr(entry,"published_parsed"):
+        return True
+    fecha=datetime(*entry.published_parsed[:6],tzinfo=ZoneInfo("UTC"))
+    return fecha>=datetime.now(ZoneInfo("UTC"))-timedelta(days=7)
+
+def link_funciona(url):
     try:
-        fecha = dateparser.parse(fecha_raw)
-        ahora = datetime.now(ZoneInfo("America/Bogota"))
-        return fecha >= (ahora - timedelta(days=7))
+        r=requests.head(url,timeout=6,allow_redirects=True)
+        return r.status_code<400
     except:
         return False
 
+def detectar_pais(link):
+    link=link.lower()
+    if ".co" in link: return "Colombia"
+    if ".uk" in link: return "Reino Unido"
+    if ".au" in link: return "Australia"
+    if ".kr" in link: return "Corea"
+    if ".cn" in link: return "China"
+    if ".eu" in link: return "Europa"
+    return "Global"
 
-# ---------- LIMPIAR TITULO ----------
-def limpiar_titulo_fuente(titulo, regulador):
-
-    titulo = limpiar(titulo)
-    separadores = [" - "," | "," — "," – "]
-
-    for sep in separadores:
-        if sep in titulo:
-            partes = titulo.rsplit(sep,1)
-            posible_fuente = partes[1].strip()
-            if len(posible_fuente.split()) <= 4:
-                return partes[0].strip(), posible_fuente
-
-    return titulo, regulador
-
-
-# ---------- RECOLECTAR ----------
+# -------- RECOLECTAR --------
 def recolectar():
+    datos=[]
 
-    datos = []
-
-    for regulador, url in FUENTES.items():
-
-        feed = feedparser.parse(url)
+    for regulador,url in FUENTES.items():
+        feed=feedparser.parse(url)
 
         for e in feed.entries:
 
             if not es_reciente(e):
                 continue
 
-            titulo, fuente = limpiar_titulo_fuente(e.title, regulador)
+            titulo=limpiar_titulo(e.title)
 
-            if not relevante(titulo):
+            if not es_relevante(titulo):
+                continue
+
+            if not link_funciona(e.link):
                 continue
 
             datos.append({
-                "pais": PAISES.get(regulador,"Internacional"),
-                "regulador": regulador,
-                "fuente": fuente,
-                "titulo_original": titulo,
-                "titulo_es": traducir(titulo),
-                "link": e.link,
-                "fecha_captura": datetime.now(
+                "regulador":regulador,
+                "pais":detectar_pais(e.link),
+                "titulo":titulo,
+                "titulo_es":traducir(titulo),
+                "link":e.link,
+                "fecha":datetime.now(
                     ZoneInfo("America/Bogota")
                 ).strftime("%Y-%m-%d %H:%M")
             })
 
-    df = pd.DataFrame(datos)
-
+    df=pd.DataFrame(datos)
     if not df.empty:
-        df.drop_duplicates(subset=["titulo_original"], inplace=True)
+        df.drop_duplicates(subset=["titulo"],inplace=True)
 
     return df
 
-
-# ---------- CONECTAR SHEETS ----------
+# -------- CONECTAR SHEETS --------
 def conectar():
-
-    creds_json = os.environ.get("GOOGLE_DRIVE_JSON")
-    if not creds_json:
-        raise Exception("Falta GOOGLE_DRIVE_JSON")
-
-    creds = Credentials.from_service_account_info(
+    creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
+    creds=Credentials.from_service_account_info(
         json.loads(creds_json),
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
+    client=gspread.authorize(creds)
+    return client.open_by_key(SHEET_ID).sheet1
 
-    client = gspread.authorize(creds)
-    sh = client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
-
-    return sh.sheet1
-
-
-# ---------- GUARDAR ----------
+# -------- GUARDAR --------
 def guardar(df):
 
-    ws = conectar()
+    ws=conectar()
 
-    columnas = [
-        "pais","regulador","fuente",
-        "titulo_original","titulo_es",
-        "link","fecha_captura"
-    ]
+    columnas=["regulador","pais","titulo","titulo_es","link","fecha"]
+    df=df[columnas].fillna("").astype(str)
 
-    df = df[columnas].fillna("").astype(str)
-
-    data = [columnas] + df.values.tolist()
+    data=[columnas]+df.values.tolist()
 
     ws.clear()
-    ws.update(range_name="A1", values=data)
+    ws.update(range_name="A1",values=data)
 
-    print("✅ Sheet actualizado con país y noticias recientes")
-
-
-# ---------- MAIN ----------
+# -------- MAIN --------
 def main():
 
-    df = recolectar()
+    df=recolectar()
 
     if df.empty:
-        print("⚠️ No hay noticias recientes")
+        print("⚠️ No hay noticias recientes válidas")
         return
 
     guardar(df)
+    print(f"✅ {len(df)} noticias válidas guardadas")
 
-    print(f"✅ {len(df)} noticias enviadas")
-
-
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
