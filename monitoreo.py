@@ -1,10 +1,11 @@
 import feedparser
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os, json, gspread
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
+from dateutil import parser as dateparser
 
 
 # ---------- FUENTES REGULADORES ----------
@@ -23,7 +24,6 @@ FUENTES={
     "PRAI":"https://news.google.com/rss/search?q=programa+regional+audiovisual+infantil+PRAI&hl=es&gl=CO&ceid=CO:es"
 }
 
-# ---------- PALABRAS CLAVE ----------
 CLAVES=[
     "children","child","kids","minor","youth","teen",
     "privacy","data protection","platform regulation",
@@ -33,11 +33,11 @@ CLAVES=[
     "plataformas","regulación","internet","televisión"
 ]
 
-# ---------- LIMPIEZA TEXTO ----------
+# ---------- LIMPIAR TEXTO ----------
 def limpiar(t):
     return " ".join(str(t).replace("\n"," ").split())
 
-# ---------- LIMPIAR TITULO Y EXTRAER FUENTE ----------
+# ---------- EXTRAER FUENTE ----------
 def limpiar_titulo_y_fuente(titulo, regulador):
 
     titulo=limpiar(titulo)
@@ -47,8 +47,6 @@ def limpiar_titulo_y_fuente(titulo, regulador):
         if sep in titulo:
             partes=titulo.rsplit(sep,1)
             posible_fuente=partes[1].strip()
-
-            # si parece nombre de medio
             if len(posible_fuente.split())<=4:
                 return partes[0].strip(), posible_fuente
 
@@ -65,6 +63,24 @@ def traducir(t):
     except:
         return t
 
+# ---------- FILTRO SEMANA ----------
+def es_de_la_semana(entry):
+
+    try:
+        fecha_raw = entry.get("published", entry.get("updated", None))
+        if not fecha_raw:
+            return True  # si no hay fecha, la dejamos pasar
+
+        fecha = dateparser.parse(fecha_raw)
+
+        ahora = datetime.now(ZoneInfo("America/Bogota"))
+        limite = ahora - timedelta(days=7)
+
+        return fecha >= limite
+
+    except:
+        return True
+
 # ---------- RECOLECTAR ----------
 def recolectar():
 
@@ -74,6 +90,9 @@ def recolectar():
         feed=feedparser.parse(url)
 
         for e in feed.entries:
+
+            if not es_de_la_semana(e):
+                continue
 
             titulo_limpio, fuente = limpiar_titulo_y_fuente(e.title, regulador)
 
@@ -98,7 +117,7 @@ def recolectar():
 
     return df
 
-# ---------- CONECTAR A SHEETS ----------
+# ---------- CONECTAR ----------
 def conectar():
 
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
@@ -111,8 +130,6 @@ def conectar():
     )
 
     client=gspread.authorize(creds)
-
-    # TU SHEET REAL
     sh=client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
 
     return sh.sheet1
@@ -128,10 +145,7 @@ def guardar(df):
         if c not in df.columns:
             df[c]=""
 
-    df=df[columnas]
-
-    # convertir todo a texto seguro
-    df=df.fillna("").astype(str)
+    df=df[columnas].fillna("").astype(str)
 
     data=[columnas]+df.values.tolist()
 
@@ -145,12 +159,12 @@ def main():
     df=recolectar()
 
     if df.empty:
-        print("⚠️ No hay noticias relevantes")
+        print("⚠️ No hay noticias de la última semana")
         return
 
     guardar(df)
 
-    print(f"✅ {len(df)} noticias enviadas")
+    print(f"✅ {len(df)} noticias de la semana enviadas")
 
 if __name__=="__main__":
     main()
