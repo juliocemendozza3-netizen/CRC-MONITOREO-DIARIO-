@@ -43,14 +43,19 @@ FUENTES={
 }
 
 
-# ---------- PALABRAS CLAVE ----------
+# ---------- PALABRAS CLAVE GENERALES ----------
 CLAVES=[
     "children","child","kids","minor","youth","teen",
     "privacy","data protection","platform regulation",
     "online safety","digital safety","content moderation",
-    "ai regulation","screen time","parental control",
-    "niños","infancia","menores","protección digital",
-    "plataformas","regulación","internet","televisión"
+    "niños","infancia","menores","protección digital"
+]
+
+# 🔴 NUEVAS PALABRAS IA CRC
+IA_CLAVES=[
+    "artificial intelligence","ai","algorithm",
+    "machine learning","generative ai","deepfake",
+    "inteligencia artificial","algoritmo","recomendación automática"
 ]
 
 
@@ -75,6 +80,9 @@ def limpiar(t):
 def relevante(t):
     return any(p in str(t).lower() for p in CLAVES)
 
+def detectar_ia(t):
+    return any(p in str(t).lower() for p in IA_CLAVES)
+
 def traducir(t):
     try:
         return GoogleTranslator(source="auto",target="es").translate(t)
@@ -94,21 +102,15 @@ def es_reciente(entry):
         return fecha>=datetime.now()-timedelta(days=7)
     return False
 
-
-# 🔴 VALIDACIÓN ROBUSTA DE LINKS
 def link_valido(url):
     try:
-        # primero intento HEAD (más rápido)
         r=requests.head(url,timeout=5,allow_redirects=True,
                         headers={"User-Agent":"Mozilla/5.0"})
         if r.status_code<400:
             return True
-
-        # si falla HEAD intento GET
         r=requests.get(url,timeout=6,allow_redirects=True,
                        headers={"User-Agent":"Mozilla/5.0"})
         return r.status_code<400
-
     except:
         return False
 
@@ -137,11 +139,18 @@ def recolectar():
 
             meta=META.get(reg,{"pais":"Internacional","region":"Global","tipo":"Otro"})
 
+            # 🔴 NUEVA CLASIFICACIÓN CRC
+            if detectar_ia(titulo):
+                tema="IA y protección infantil"
+            else:
+                tema="Protección digital general"
+
             datos.append({
                 "regulador":reg,
                 "pais":meta["pais"],
                 "region":meta["region"],
                 "tipo_actor":meta["tipo"],
+                "tema_crc":tema,
                 "tipo_politica":detectar_tipo(titulo),
                 "titulo_original":titulo,
                 "titulo_es":traducir(titulo),
@@ -161,8 +170,6 @@ def recolectar():
 def conectar():
 
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
-    if not creds_json:
-        raise Exception("Falta GOOGLE_DRIVE_JSON")
 
     creds=Credentials.from_service_account_info(
         json.loads(creds_json),
@@ -182,14 +189,15 @@ def guardar(df):
 
     columnas=[
         "regulador","pais","region","tipo_actor",
-        "tipo_politica","titulo_original","titulo_es","link","fecha"
+        "tema_crc","tipo_politica",
+        "titulo_original","titulo_es","link","fecha"
     ]
 
     df=df[columnas].fillna("").astype(str)
 
     ws.update(range_name="A1",values=[columnas]+df.values.tolist())
 
-    print("✅ Monitoreo CRC actualizado")
+    print("✅ Monitoreo CRC actualizado con análisis IA")
 
 
 # ---------- MAIN ----------
