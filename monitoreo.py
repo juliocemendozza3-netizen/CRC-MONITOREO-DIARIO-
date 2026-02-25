@@ -8,50 +8,65 @@ from deep_translator import GoogleTranslator
 from dateutil import parser as dateparser
 
 
-# ---------- FUENTES REGULADORES ----------
+# ---------- FUENTES ----------
 FUENTES = {
 
-    # COLOMBIA
     "CRC Colombia":
         "https://news.google.com/rss/search?q=CRC+Colombia+regulación+digital+menores&hl=es&gl=CO&ceid=CO:es",
 
-    # GLOBAL
     "UIT":
         "https://news.google.com/rss/search?q=ITU+children+digital+safety&hl=en&gl=US&ceid=US:en",
+
     "OCDE":
         "https://news.google.com/rss/search?q=OECD+children+online+safety+policy&hl=en&gl=US&ceid=US:en",
+
     "UNICEF":
         "https://news.google.com/rss/search?q=UNICEF+internet+children+policy&hl=en&gl=US&ceid=US:en",
+
     "UNESCO":
         "https://news.google.com/rss/search?q=UNESCO+media+literacy+children+digital&hl=en&gl=US&ceid=US:en",
 
-    # UK
     "Ofcom":
         "https://news.google.com/rss/search?q=Ofcom+online+safety+children&hl=en-GB&gl=GB&ceid=GB:en",
 
-    # USA
     "FCC":
         "https://news.google.com/rss/search?q=FCC+children+internet+policy&hl=en-US&gl=US&ceid=US:en",
+
     "FTC":
         "https://news.google.com/rss/search?q=FTC+children+privacy+online&hl=en-US&gl=US&ceid=US:en",
 
-    # AUSTRALIA
     "eSafety Commissioner":
         "https://news.google.com/rss/search?q=Australia+eSafety+Commissioner+children&hl=en-AU&gl=AU&ceid=AU:en",
 
-    # COREA
     "KCC":
         "https://news.google.com/rss/search?q=Korea+Communications+Commission+children+internet&hl=en&gl=KR&ceid=KR:en",
 
-    # CHINA
     "CAC China":
         "https://news.google.com/rss/search?q=China+internet+regulation+children+gaming&hl=en&gl=CN&ceid=CN:en",
 
-    # LATAM
     "Regulatel":
         "https://news.google.com/rss/search?q=Regulatel+telecom+children&hl=es&gl=CO&ceid=CO:es",
+
     "PRAI":
         "https://news.google.com/rss/search?q=programa+regional+audiovisual+infantil+PRAI&hl=es&gl=CO&ceid=CO:es"
+}
+
+
+# ---------- MAPA REGULADOR → PAÍS ----------
+PAISES = {
+    "CRC Colombia":"Colombia",
+    "Ofcom":"Reino Unido",
+    "FCC":"Estados Unidos",
+    "FTC":"Estados Unidos",
+    "eSafety Commissioner":"Australia",
+    "KCC":"Corea del Sur",
+    "CAC China":"China",
+    "Regulatel":"Latinoamérica",
+    "PRAI":"Latinoamérica",
+    "UIT":"Internacional",
+    "OCDE":"Internacional",
+    "UNICEF":"Internacional",
+    "UNESCO":"Internacional"
 }
 
 
@@ -65,7 +80,7 @@ CLAVES = [
 ]
 
 
-# ---------- FUNCIONES TEXTO ----------
+# ---------- TEXTO ----------
 def limpiar(texto):
     return " ".join(str(texto).replace("\n"," ").split())
 
@@ -81,21 +96,18 @@ def relevante(texto):
 
 # ---------- FILTRO SEMANA ----------
 def es_reciente(entry):
-
     fecha_raw = entry.get("published") or entry.get("updated")
     if not fecha_raw:
         return False
-
     try:
         fecha = dateparser.parse(fecha_raw)
         ahora = datetime.now(ZoneInfo("America/Bogota"))
-        limite = ahora - timedelta(days=7)
-        return fecha >= limite
+        return fecha >= (ahora - timedelta(days=7))
     except:
         return False
 
 
-# ---------- LIMPIAR TITULO Y FUENTE ----------
+# ---------- LIMPIAR TITULO ----------
 def limpiar_titulo_fuente(titulo, regulador):
 
     titulo = limpiar(titulo)
@@ -105,7 +117,6 @@ def limpiar_titulo_fuente(titulo, regulador):
         if sep in titulo:
             partes = titulo.rsplit(sep,1)
             posible_fuente = partes[1].strip()
-
             if len(posible_fuente.split()) <= 4:
                 return partes[0].strip(), posible_fuente
 
@@ -126,16 +137,17 @@ def recolectar():
             if not es_reciente(e):
                 continue
 
-            titulo_limpio, fuente = limpiar_titulo_fuente(e.title, regulador)
+            titulo, fuente = limpiar_titulo_fuente(e.title, regulador)
 
-            if not relevante(titulo_limpio):
+            if not relevante(titulo):
                 continue
 
             datos.append({
+                "pais": PAISES.get(regulador,"Internacional"),
                 "regulador": regulador,
                 "fuente": fuente,
-                "titulo_original": titulo_limpio,
-                "titulo_es": traducir(titulo_limpio),
+                "titulo_original": titulo,
+                "titulo_es": traducir(titulo),
                 "link": e.link,
                 "fecha_captura": datetime.now(
                     ZoneInfo("America/Bogota")
@@ -168,27 +180,25 @@ def conectar():
     return sh.sheet1
 
 
-# ---------- GUARDAR (SOBRESCRIBE SOLO SEMANA) ----------
+# ---------- GUARDAR ----------
 def guardar(df):
 
     ws = conectar()
 
     columnas = [
-        "regulador","fuente",
+        "pais","regulador","fuente",
         "titulo_original","titulo_es",
         "link","fecha_captura"
     ]
 
     df = df[columnas].fillna("").astype(str)
 
-    # 🔴 AQUÍ ESTÁ LA CLAVE:
-    # Se reemplaza TODO el contenido por solo noticias recientes
     data = [columnas] + df.values.tolist()
 
     ws.clear()
     ws.update(range_name="A1", values=data)
 
-    print("✅ Sheet actualizado SOLO con noticias de la última semana")
+    print("✅ Sheet actualizado con país y noticias recientes")
 
 
 # ---------- MAIN ----------
@@ -202,7 +212,7 @@ def main():
 
     guardar(df)
 
-    print(f"✅ {len(df)} noticias vigentes enviadas")
+    print(f"✅ {len(df)} noticias enviadas")
 
 
 if __name__ == "__main__":
