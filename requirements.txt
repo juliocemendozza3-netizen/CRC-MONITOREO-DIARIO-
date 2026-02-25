@@ -6,3 +6,7 @@ google-auth
 google-auth-oauthlib
 google-auth-httplib2
 deep-translator
+streamlit
+gspread
+pandas
+google-auth
