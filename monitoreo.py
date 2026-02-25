@@ -8,7 +8,7 @@ from deep_translator import GoogleTranslator
 from dateutil import parser as dateparser
 
 
-# ---------- FUENTES REGULADORES ----------
+# ---------- FUENTES ----------
 FUENTES={
     "ITU":"https://news.google.com/rss/search?q=ITU+children+digital+safety&hl=en&gl=US&ceid=US:en",
     "OECD":"https://news.google.com/rss/search?q=OECD+children+online+safety+policy&hl=en&gl=US&ceid=US:en",
@@ -33,11 +33,43 @@ CLAVES=[
     "plataformas","regulación","internet","televisión"
 ]
 
-# ---------- LIMPIAR TEXTO ----------
+
+# ---------- TEXTO ----------
 def limpiar(t):
     return " ".join(str(t).replace("\n"," ").split())
 
-# ---------- EXTRAER FUENTE ----------
+def traducir(t):
+    try:
+        return GoogleTranslator(source="auto",target="es").translate(t)
+    except:
+        return t
+
+def relevante(t):
+    return any(p in str(t).lower() for p in CLAVES)
+
+
+# ---------- FILTRO SEMANA ESTRICTO ----------
+def es_de_la_semana(entry):
+
+    fecha_raw = entry.get("published") or entry.get("updated")
+
+    # si no hay fecha → descartamos
+    if not fecha_raw:
+        return False
+
+    try:
+        fecha = dateparser.parse(fecha_raw)
+
+        ahora = datetime.now(ZoneInfo("America/Bogota"))
+        limite = ahora - timedelta(days=7)
+
+        return fecha >= limite
+
+    except:
+        return False
+
+
+# ---------- LIMPIAR TITULO Y FUENTE ----------
 def limpiar_titulo_y_fuente(titulo, regulador):
 
     titulo=limpiar(titulo)
@@ -47,39 +79,13 @@ def limpiar_titulo_y_fuente(titulo, regulador):
         if sep in titulo:
             partes=titulo.rsplit(sep,1)
             posible_fuente=partes[1].strip()
+
+            # si parece nombre de medio, lo usamos
             if len(posible_fuente.split())<=4:
                 return partes[0].strip(), posible_fuente
 
     return titulo, regulador
 
-# ---------- FILTRO TEMÁTICO ----------
-def relevante(t):
-    return any(p in str(t).lower() for p in CLAVES)
-
-# ---------- TRADUCCIÓN ----------
-def traducir(t):
-    try:
-        return GoogleTranslator(source="auto",target="es").translate(t)
-    except:
-        return t
-
-# ---------- FILTRO SEMANA ----------
-def es_de_la_semana(entry):
-
-    try:
-        fecha_raw = entry.get("published", entry.get("updated", None))
-        if not fecha_raw:
-            return True  # si no hay fecha, la dejamos pasar
-
-        fecha = dateparser.parse(fecha_raw)
-
-        ahora = datetime.now(ZoneInfo("America/Bogota"))
-        limite = ahora - timedelta(days=7)
-
-        return fecha >= limite
-
-    except:
-        return True
 
 # ---------- RECOLECTAR ----------
 def recolectar():
@@ -87,10 +93,12 @@ def recolectar():
     datos=[]
 
     for regulador,url in FUENTES.items():
+
         feed=feedparser.parse(url)
 
         for e in feed.entries:
 
+            # 🔴 FILTRO SEMANA REAL
             if not es_de_la_semana(e):
                 continue
 
@@ -105,7 +113,7 @@ def recolectar():
                 "titulo_original":titulo_limpio,
                 "titulo_es":traducir(titulo_limpio),
                 "link":str(e.link),
-                "fecha":datetime.now(
+                "fecha_captura":datetime.now(
                     ZoneInfo("America/Bogota")
                 ).strftime("%Y-%m-%d %H:%M")
             })
@@ -117,7 +125,8 @@ def recolectar():
 
     return df
 
-# ---------- CONECTAR ----------
+
+# ---------- CONECTAR SHEETS ----------
 def conectar():
 
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
@@ -134,12 +143,13 @@ def conectar():
 
     return sh.sheet1
 
+
 # ---------- GUARDAR ----------
 def guardar(df):
 
     ws=conectar()
 
-    columnas=["regulador","fuente","titulo_original","titulo_es","link","fecha"]
+    columnas=["regulador","fuente","titulo_original","titulo_es","link","fecha_captura"]
 
     for c in columnas:
         if c not in df.columns:
@@ -153,6 +163,7 @@ def guardar(df):
 
     print("✅ Datos escritos en Google Sheets")
 
+
 # ---------- MAIN ----------
 def main():
 
@@ -164,7 +175,8 @@ def main():
 
     guardar(df)
 
-    print(f"✅ {len(df)} noticias de la semana enviadas")
+    print(f"✅ {len(df)} noticias recientes enviadas")
+
 
 if __name__=="__main__":
     main()
