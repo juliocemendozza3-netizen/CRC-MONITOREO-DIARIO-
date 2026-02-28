@@ -70,14 +70,19 @@ def limpiar_texto(t):
     return t
 
 
+# 🔴 CAMBIO APLICADO AQUÍ
 def traducir(t):
     try:
         trad=GoogleTranslator(source="auto",target="es").translate(t)
+
+        # Si la traducción es igual al original,
+        # asumimos que ya está en español y lo repetimos
         if trad.lower()==t.lower():
-            return ""
+            return t
+
         return trad
     except:
-        return ""
+        return t
 
 
 def detectar_tema(t):
