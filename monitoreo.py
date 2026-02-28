@@ -99,7 +99,7 @@ def detectar_tipo(texto):
 def es_reciente(entry):
     if hasattr(entry,"published_parsed") and entry.published_parsed:
         fecha=datetime(*entry.published_parsed[:6])
-        return fecha>=datetime.now()-timedelta(days=30)
+        return fecha>=datetime.now()-timedelta(days=365)
     return False
 
 def link_valido(url):
