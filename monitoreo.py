@@ -43,8 +43,19 @@ FUENTES={
 }
 
 
-# ---------- CLASIFICADORES CRC ----------
+# ---------- FILTRO NUEVO CRC (EVENTOS) ----------
+EVENTOS_IRRELEVANTES = [
+    "summit","forum","conference","webinar","seminar","workshop","meeting",
+    "cumbre","foro","conferencia","seminario","taller","encuentro","evento",
+    "symposium","roundtable","expo","panel","dialogue"
+]
 
+def es_evento_irrelevante(texto):
+    texto = texto.lower()
+    return any(p in texto for p in EVENTOS_IRRELEVANTES)
+
+
+# ---------- CLASIFICADORES ----------
 IA_CLAVES=["artificial intelligence","ai","algoritmo","deepfake","machine learning"]
 
 PIEZAS={
@@ -65,7 +76,6 @@ STOPWORDS={"the","and","for","with","from","about","over","under","into","new"}
 
 
 # ---------- UTILIDADES ----------
-
 def limpiar(t):
     t=str(t).replace("\n"," ").strip()
     if " - " in t:
@@ -117,7 +127,6 @@ def link_valido(url):
 
 
 # ---------- RECOLECTAR ----------
-
 def recolectar():
 
     datos=[]
@@ -132,6 +141,10 @@ def recolectar():
                 continue
 
             titulo=limpiar(e.title)
+
+            # 🔴 FILTRO NUEVO: eliminar eventos irrelevantes
+            if es_evento_irrelevante(titulo):
+                continue
 
             if not link_valido(e.link):
                 continue
@@ -164,7 +177,6 @@ def recolectar():
 
 
 # ---------- SHEETS ----------
-
 def conectar():
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
     creds=Credentials.from_service_account_info(json.loads(creds_json),
@@ -189,11 +201,10 @@ def guardar(df):
 
     ws.update(range_name="A1",values=[columnas]+df.values.tolist())
 
-    print("✅ Monitoreo CRC actualizado con tendencias")
+    print("✅ Monitoreo CRC actualizado (sin eventos irrelevantes)")
 
 
 # ---------- MAIN ----------
-
 def main():
 
     df=recolectar()
@@ -209,4 +220,3 @@ def main():
 
 if __name__=="__main__":
     main()
-
