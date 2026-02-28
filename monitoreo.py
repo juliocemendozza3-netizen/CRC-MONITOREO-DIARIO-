@@ -43,16 +43,16 @@ FUENTES={
 }
 
 
-# ---------- FILTRO NUEVO CRC (EVENTOS) ----------
-EVENTOS_IRRELEVANTES = [
+# ---------- FILTRO EVENTOS ----------
+EVENTOS=[
     "summit","forum","conference","webinar","seminar","workshop","meeting",
     "cumbre","foro","conferencia","seminario","taller","encuentro","evento",
     "symposium","roundtable","expo","panel","dialogue"
 ]
 
-def es_evento_irrelevante(texto):
-    texto = texto.lower()
-    return any(p in texto for p in EVENTOS_IRRELEVANTES)
+def es_evento(t):
+    t=t.lower()
+    return any(p in t for p in EVENTOS)
 
 
 # ---------- CLASIFICADORES ----------
@@ -142,15 +142,15 @@ def recolectar():
 
             titulo=limpiar(e.title)
 
-            # 🔴 FILTRO NUEVO: eliminar eventos irrelevantes
-            if es_evento_irrelevante(titulo):
+            # 🔴 ELIMINAR EVENTOS
+            if es_evento(titulo):
                 continue
 
+            # 🔴 VALIDAR LINK
             if not link_valido(e.link):
                 continue
 
             meta=META.get(reg,{"pais":"Internacional","region":"Global","tipo":"Otro"})
-
             tema="IA y protección infantil" if detectar_ia(titulo) else "Protección digital"
 
             datos.append({
@@ -201,7 +201,7 @@ def guardar(df):
 
     ws.update(range_name="A1",values=[columnas]+df.values.tolist())
 
-    print("✅ Monitoreo CRC actualizado (sin eventos irrelevantes)")
+    print("✅ Monitoreo CRC FINAL actualizado")
 
 
 # ---------- MAIN ----------
