@@ -6,7 +6,6 @@ import os, json, gspread, requests, re
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
 
-
 # ---------- METADATOS REGULADORES ----------
 META={
     "CRC":{"pais":"Colombia","region":"Latinoamérica","tipo":"Regulador"},
@@ -23,7 +22,6 @@ META={
     "Regulatel":{"pais":"Latinoamérica","region":"Latinoamérica","tipo":"Red regulatoria"},
     "PRAI":{"pais":"Latinoamérica","region":"Latinoamérica","tipo":"Programa regional"}
 }
-
 
 # ---------- FUENTES ----------
 FUENTES={
@@ -42,18 +40,26 @@ FUENTES={
     "PRAI":"https://news.google.com/rss/search?q=PRAI+infancia+televisión+educativa&hl=es&gl=CO&ceid=CO:es"
 }
 
-
-# ---------- FILTRO EVENTOS ----------
+# ---------- FILTRO AVANZADO DE EVENTOS ----------
 EVENTOS=[
-    "summit","forum","conference","webinar","seminar","workshop","meeting",
-    "cumbre","foro","conferencia","seminario","taller","encuentro","evento",
-    "symposium","roundtable","expo","panel","dialogue"
+    "forum","summit","conference","webinar","seminar","workshop","meeting",
+    "session","panel","dialogue","roundtable","expo","symposium",
+    "foro","cumbre","conferencia","seminario","taller","encuentro","evento"
 ]
 
-def es_evento(t):
-    t=t.lower()
-    return any(p in t for p in EVENTOS)
+VERBOS_EVENTO=[
+    "host","attend","participate","join","speak","launch","opening","closing"
+]
 
+def es_evento(titulo):
+    t=titulo.lower()
+    if any(e in t for e in EVENTOS):
+        return True
+    for v in VERBOS_EVENTO:
+        for e in EVENTOS:
+            if v in t and e in t:
+                return True
+    return False
 
 # ---------- CLASIFICADORES ----------
 IA_CLAVES=["artificial intelligence","ai","algoritmo","deepfake","machine learning"]
@@ -61,7 +67,6 @@ IA_CLAVES=["artificial intelligence","ai","algoritmo","deepfake","machine learni
 PIEZAS={
     "campaign":"Campaña",
     "guide":"Guía",
-    "guideline":"Guía",
     "report":"Informe",
     "strategy":"Estrategia",
     "law":"Ley",
@@ -73,7 +78,6 @@ PIEZAS={
 }
 
 STOPWORDS={"the","and","for","with","from","about","over","under","into","new"}
-
 
 # ---------- UTILIDADES ----------
 def limpiar(t):
@@ -125,14 +129,12 @@ def link_valido(url):
     except:
         return False
 
-
 # ---------- RECOLECTAR ----------
 def recolectar():
 
     datos=[]
 
     for reg,url in FUENTES.items():
-
         feed=feedparser.parse(url)
 
         for e in feed.entries:
@@ -142,11 +144,9 @@ def recolectar():
 
             titulo=limpiar(e.title)
 
-            # 🔴 ELIMINAR EVENTOS
             if es_evento(titulo):
                 continue
 
-            # 🔴 VALIDAR LINK
             if not link_valido(e.link):
                 continue
 
@@ -175,6 +175,15 @@ def recolectar():
 
     return df
 
+# ---------- TENDENCIAS ----------
+def calcular_tendencias(df):
+    if df.empty:
+        return pd.DataFrame()
+    palabras=[]
+    for fila in df["frases_clave"]:
+        palabras+=fila.split(", ")
+    top=pd.Series(palabras).value_counts().head(15)
+    return pd.DataFrame({"tendencia":top.index,"frecuencia":top.values})
 
 # ---------- SHEETS ----------
 def conectar():
@@ -183,12 +192,12 @@ def conectar():
         scopes=["https://www.googleapis.com/auth/spreadsheets"])
     client=gspread.authorize(creds)
     sh=client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
-    return sh.sheet1
-
+    return sh
 
 def guardar(df):
 
-    ws=conectar()
+    sh=conectar()
+    ws=sh.sheet1
 
     columnas=[
         "regulador","pais","region","tipo_actor",
@@ -198,25 +207,27 @@ def guardar(df):
     ]
 
     df=df[columnas].fillna("").astype(str)
-
     ws.update(range_name="A1",values=[columnas]+df.values.tolist())
 
-    print("✅ Monitoreo CRC FINAL actualizado")
+    # hoja de tendencias
+    tendencias=calcular_tendencias(df)
+    if not tendencias.empty:
+        try:
+            w2=sh.worksheet("Tendencias")
+        except:
+            w2=sh.add_worksheet(title="Tendencias",rows="50",cols="5")
+        w2.update("A1",[["tendencia","frecuencia"]]+tendencias.values.tolist())
 
+    print("✅ Monitoreo CRC FINAL + tendencias actualizado")
 
 # ---------- MAIN ----------
 def main():
-
     df=recolectar()
-
     if df.empty:
         print("⚠️ No hay noticias relevantes")
         return
-
     guardar(df)
-
     print(f"✅ {len(df)} noticias procesadas")
-
 
 if __name__=="__main__":
     main()
