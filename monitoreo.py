@@ -43,65 +43,64 @@ FUENTES={
 }
 
 
-# ---------- FILTRO INTELIGENTE DE EVENTOS ----------
-EVENTOS = [
+# ---------- FILTRO EVENTOS REAL ----------
+EVENTOS=[
     "forum","summit","conference","webinar","seminar","workshop",
     "meeting","session","panel","dialogue","roundtable","expo","symposium",
     "foro","cumbre","conferencia","seminario","taller","encuentro","evento"
 ]
 
-VERBOS_EVENTO = [
-    "attend","host","participate","join","speak","open","close",
-    "held","gather","meeting","celebrate","opening","closing"
-]
-
-ACCION_REGULATORIA = [
-    "announce","approve","adopt","publish","issue",
-    "framework","guideline","law","regulation","policy",
-    "aprueba","publica","emite","lanza","regulación","ley"
+VERBOS_EVENTO=[
+    "attend","host","participate","join","speak","open","held","gather"
 ]
 
 def es_evento(titulo):
-    t = titulo.lower()
-
-    if not any(e in t for e in EVENTOS):
-        return False
-
-    if any(a in t for a in ACCION_REGULATORIA):
-        return False
-
-    if any(v in t for v in VERBOS_EVENTO):
-        return True
-
-    return True
+    t=titulo.lower()
+    if any(e in t for e in EVENTOS):
+        if any(v in t for v in VERBOS_EVENTO):
+            return True
+        # si menciona evento pero no acción regulatoria -> se elimina
+        if not any(k in t for k in ["law","policy","regulation","guide","framework","aprueba","emite","lanza"]):
+            return True
+    return False
 
 
-# ---------- CLASIFICADORES ----------
-IA_CLAVES=["artificial intelligence","ai","algoritmo","deepfake","machine learning"]
+# ---------- CLASIFICADORES CRC ----------
+IA_CLAVES=["ai","artificial intelligence","algoritmo","deepfake","machine learning"]
 
-PIEZAS={
-    "campaign":"Campaña",
-    "guide":"Guía",
-    "guideline":"Guía",
-    "report":"Informe",
-    "strategy":"Estrategia",
-    "law":"Ley",
-    "regulation":"Regulación",
-    "framework":"Marco regulatorio",
-    "policy":"Política pública",
-    "literacy":"Alfabetización mediática",
-    "education":"Programa educativo"
+TEMAS={
+    "IA":["ai","artificial intelligence","algoritmo","deepfake"],
+    "Privacidad":["privacy","data protection","consent"],
+    "Plataformas":["platform","social media","moderation"],
+    "Alfabetizacion":["literacy","education","training"],
+    "Seguridad":["online safety","risk","harm"]
 }
 
-STOPWORDS={"the","and","for","with","from","about","over","under","into","new"}
+ACCIONES={
+    "Regulación":["law","regulation","rule","bill"],
+    "Política":["policy","strategy","plan"],
+    "Guía":["guide","guideline","recommendation"],
+    "Sanción":["fine","penalty","investigation"],
+    "Programa":["campaign","initiative"]
+}
 
 
-# ---------- UTILIDADES ----------
-def limpiar(t):
-    t=str(t).replace("\n"," ").strip()
-    if " - " in t:
-        t=t.rsplit(" - ",1)[0]
-    return t
+def detectar_tema(t):
+    t=t.lower()
+    for tema,pal in TEMAS.items():
+        if any(p in t for p in pal):
+            return tema
+    return "Otros"
+
+def detectar_accion(t):
+    t=t.lower()
+    for a,pal in ACCIONES.items():
+        if any(p in t for p in pal):
+            return a
+    return "Informativo"
+
+def detectar_ia(t):
+    return any(p in t.lower() for p in IA_CLAVES)
 
 def traducir(t):
     try:
@@ -109,19 +108,6 @@ def traducir(t):
     except:
         return t
 
-def detectar_ia(t):
-    return any(p in t.lower() for p in IA_CLAVES)
-
-def detectar_pieza(t):
-    for k,v in PIEZAS.items():
-        if k in t.lower():
-            return v
-    return "Otro"
-
-def extraer_keywords(texto):
-    palabras=re.findall(r'\b[a-zA-Z]{4,}\b', texto.lower())
-    palabras=[p for p in palabras if p not in STOPWORDS]
-    return ", ".join(palabras[:5])
 
 def es_reciente(entry):
     if hasattr(entry,"published_parsed") and entry.published_parsed:
@@ -136,12 +122,10 @@ def obtener_fecha(entry):
 
 def link_valido(url):
     try:
-        r=requests.head(url,timeout=5,allow_redirects=True,
-                        headers={"User-Agent":"Mozilla/5.0"})
+        r=requests.head(url,timeout=5,allow_redirects=True,headers={"User-Agent":"Mozilla/5.0"})
         if r.status_code<400:
             return True
-        r=requests.get(url,timeout=6,allow_redirects=True,
-                       headers={"User-Agent":"Mozilla/5.0"})
+        r=requests.get(url,timeout=6,allow_redirects=True,headers={"User-Agent":"Mozilla/5.0"})
         return r.status_code<400
     except:
         return False
@@ -153,7 +137,6 @@ def recolectar():
     datos=[]
 
     for reg,url in FUENTES.items():
-
         feed=feedparser.parse(url)
 
         for e in feed.entries:
@@ -161,9 +144,8 @@ def recolectar():
             if not es_reciente(e):
                 continue
 
-            titulo=limpiar(e.title)
+            titulo=str(e.title).strip()
 
-            # 🔴 FILTRO REAL DE EVENTOS
             if es_evento(titulo):
                 continue
 
@@ -171,16 +153,15 @@ def recolectar():
                 continue
 
             meta=META.get(reg,{"pais":"Internacional","region":"Global","tipo":"Otro"})
-            tema="IA y protección infantil" if detectar_ia(titulo) else "Protección digital"
 
             datos.append({
                 "regulador":reg,
                 "pais":meta["pais"],
                 "region":meta["region"],
                 "tipo_actor":meta["tipo"],
-                "tema_crc":tema,
-                "tipo_pieza":detectar_pieza(titulo),
-                "frases_clave":extraer_keywords(titulo),
+                "tema_global":detectar_tema(titulo),
+                "accion_regulatoria":detectar_accion(titulo),
+                "contexto_crc":"Alfabetización" if "literacy" in titulo.lower() else "Regulación",
                 "titulo_original":titulo,
                 "titulo_es":traducir(titulo),
                 "link":e.link,
@@ -192,6 +173,9 @@ def recolectar():
 
     if not df.empty:
         df.drop_duplicates(subset=["titulo_original"],inplace=True)
+        # intensidad por tema
+        conteo=df.groupby("tema_global").size().to_dict()
+        df["intensidad"]=df["tema_global"].map(conteo)
 
     return df
 
@@ -212,15 +196,16 @@ def guardar(df):
 
     columnas=[
         "regulador","pais","region","tipo_actor",
-        "tema_crc","tipo_pieza","frases_clave",
+        "tema_global","accion_regulatoria","contexto_crc","intensidad",
         "titulo_original","titulo_es","link",
         "fecha_noticia","fecha_busqueda"
     ]
 
     df=df[columnas].fillna("").astype(str)
+
     ws.update(range_name="A1",values=[columnas]+df.values.tolist())
 
-    print("✅ Monitoreo CRC FINAL limpio")
+    print("✅ Monitoreo CRC FINAL con inteligencia regulatoria")
 
 
 # ---------- MAIN ----------
@@ -233,6 +218,7 @@ def main():
         return
 
     guardar(df)
+
     print(f"✅ {len(df)} noticias procesadas")
 
 
