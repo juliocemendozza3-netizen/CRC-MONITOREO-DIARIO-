@@ -7,33 +7,101 @@ from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
 
 
-# ---------- LIMPIEZA TEXTO ----------
+# ---------- METADATOS ----------
+META={
+    "CRC":{"pais":"Colombia","region":"Latinoamérica","tipo":"Regulador"},
+    "Ofcom":{"pais":"Reino Unido","region":"Europa","tipo":"Regulador"},
+    "FCC":{"pais":"Estados Unidos","region":"Norteamérica","tipo":"Regulador"},
+    "FTC":{"pais":"Estados Unidos","region":"Norteamérica","tipo":"Regulador"},
+    "eSafety Commissioner":{"pais":"Australia","region":"Oceanía","tipo":"Regulador"},
+    "KCC":{"pais":"Corea del Sur","region":"Asia","tipo":"Regulador"},
+    "CAC China":{"pais":"China","region":"Asia","tipo":"Regulador"},
+    "ITU":{"pais":"Internacional","region":"Global","tipo":"Organismo internacional"},
+    "OECD":{"pais":"Internacional","region":"Global","tipo":"Organismo internacional"},
+    "UNICEF":{"pais":"Internacional","region":"Global","tipo":"Organismo internacional"},
+    "UNESCO":{"pais":"Internacional","region":"Global","tipo":"Organismo internacional"},
+    "Regulatel":{"pais":"Latinoamérica","region":"Latinoamérica","tipo":"Red regulatoria"},
+    "PRAI":{"pais":"Latinoamérica","region":"Latinoamérica","tipo":"Programa regional"}
+}
+
+
+# ---------- FUENTES ----------
+FUENTES={
+    "CRC":"https://news.google.com/rss/search?q=CRC+Colombia+regulación+telecomunicaciones&hl=es&gl=CO&ceid=CO:es",
+    "ITU":"https://news.google.com/rss/search?q=ITU+children+digital+safety&hl=en&gl=US&ceid=US:en",
+    "OECD":"https://news.google.com/rss/search?q=OECD+children+online+safety+policy&hl=en&gl=US&ceid=US:en",
+    "UNICEF":"https://news.google.com/rss/search?q=UNICEF+internet+children+policy&hl=en&gl=US&ceid=US:en",
+    "UNESCO":"https://news.google.com/rss/search?q=UNESCO+media+literacy+children+digital&hl=en&gl=US&ceid=US:en",
+    "Ofcom":"https://news.google.com/rss/search?q=Ofcom+online+safety+children&hl=en-GB&gl=GB&ceid=GB:en",
+    "FCC":"https://news.google.com/rss/search?q=FCC+children+internet+policy&hl=en-US&gl=US&ceid=US:en",
+    "FTC":"https://news.google.com/rss/search?q=FTC+children+privacy+online&hl=en-US&gl=US&ceid=US:en",
+    "eSafety Commissioner":"https://news.google.com/rss/search?q=Australia+eSafety+Commissioner+children&hl=en-AU&gl=AU&ceid=AU:en",
+    "KCC":"https://news.google.com/rss/search?q=Korea+Communications+Commission+children+internet&hl=en&gl=KR&ceid=KR:en",
+    "CAC China":"https://news.google.com/rss/search?q=China+internet+regulation+children+gaming&hl=en&gl=CN&ceid=CN:en",
+    "Regulatel":"https://news.google.com/rss/search?q=Regulatel+telecomunicaciones&hl=es&gl=CO&ceid=CO:es",
+    "PRAI":"https://news.google.com/rss/search?q=PRAI+infancia+televisión+educativa&hl=es&gl=CO&ceid=CO:es"
+}
+
+
+# ---------- CLASIFICADORES ----------
+TEMAS={
+    "IA":["ai","artificial intelligence","algoritmo","deepfake"],
+    "Privacidad":["privacy","data protection","consent"],
+    "Plataformas":["platform","social media","moderation"],
+    "Alfabetizacion":["literacy","education","training"],
+    "Seguridad":["online safety","risk","harm"]
+}
+
+ACCIONES={
+    "Regulación":["law","regulation","rule","bill"],
+    "Política":["policy","strategy","plan"],
+    "Guía":["guide","guideline","recommendation"],
+    "Sanción":["fine","penalty","investigation"],
+    "Programa":["campaign","initiative"]
+}
+
+
+# ---------- UTILIDADES ----------
 def limpiar_texto(t):
     t=str(t)
-
-    # quitar saltos
     t=t.replace("\n"," ").strip()
-
-    # quitar números sueltos
     t=re.sub(r'\b\d+\b', '', t)
-
-    # quitar dobles espacios
     t=" ".join(t.split())
-
     return t
 
 
 def traducir(t):
     try:
         trad=GoogleTranslator(source="auto",target="es").translate(t)
-        if trad.strip().lower()==t.strip().lower():
-            return ""   # evitar duplicado
+        if trad.lower()==t.lower():
+            return ""
         return trad
     except:
         return ""
 
 
-# ---------- VALIDAR LINK ----------
+def detectar_tema(t):
+    t=t.lower()
+    for tema,pal in TEMAS.items():
+        if any(p in t for p in pal):
+            return tema
+    return "Otros"
+
+
+def detectar_accion(t):
+    t=t.lower()
+    for a,pal in ACCIONES.items():
+        if any(p in t for p in pal):
+            return a
+    return "Informativo"
+
+
+def obtener_fecha(entry):
+    if hasattr(entry,"published_parsed") and entry.published_parsed:
+        return datetime(*entry.published_parsed[:6]).strftime("%Y-%m-%d")
+    return ""
+
+
 def link_valido(url):
     try:
         r=requests.head(url,timeout=5,allow_redirects=True,
@@ -98,7 +166,6 @@ def conectar():
     return sh.sheet1
 
 
-# ---------- GUARDAR ORDENADO ----------
 def guardar(df):
 
     ws=conectar()
@@ -110,16 +177,14 @@ def guardar(df):
         "fecha_noticia","fecha_busqueda"
     ]
 
-    # 🔴 forzar orden correcto
     df=df[columnas].fillna("").astype(str)
 
-    # 🔴 eliminar números sueltos otra vez por seguridad
     for col in ["titulo_original","titulo_es"]:
         df[col]=df[col].apply(limpiar_texto)
 
     ws.update(range_name="A1",values=[columnas]+df.values.tolist())
 
-    print("✅ Sheet ordenado y limpio correctamente")
+    print("✅ Sheet limpio, ordenado y funcional")
 
 
 # ---------- MAIN ----------
