@@ -2,7 +2,7 @@ import feedparser
 import pandas as pd
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-import os, json, gspread, requests, re
+import os, json, gspread, requests
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
 
@@ -43,37 +43,28 @@ FUENTES={
 }
 
 
-# ---------- FILTRO EVENTOS REAL ----------
-EVENTOS=[
-    "forum","summit","conference","webinar","seminar","workshop",
-    "meeting","session","panel","dialogue","roundtable","expo","symposium",
-    "foro","cumbre","conferencia","seminario","taller","encuentro","evento"
-]
+# ---------- FILTRO CRC ESTRICTO ----------
+CLAVES_MENORES=["children","child","minor","teen","youth","niños","infancia","menores","adolescentes"]
+CLAVES_RED_SOCIAL=["social media","platform","tiktok","instagram","facebook","youtube","snapchat","redes sociales","plataformas"]
 
-VERBOS_EVENTO=[
-    "attend","host","participate","join","speak","open","held","gather"
-]
-
-def es_evento(titulo):
-    t=titulo.lower()
-    if any(e in t for e in EVENTOS):
-        if any(v in t for v in VERBOS_EVENTO):
-            return True
-        # si menciona evento pero no acción regulatoria -> se elimina
-        if not any(k in t for k in ["law","policy","regulation","guide","framework","aprueba","emite","lanza"]):
-            return True
-    return False
+def es_tema_crc(t):
+    t=t.lower()
+    return any(k in t for k in CLAVES_MENORES) and any(k in t for k in CLAVES_RED_SOCIAL)
 
 
-# ---------- CLASIFICADORES CRC ----------
-IA_CLAVES=["ai","artificial intelligence","algoritmo","deepfake","machine learning"]
+# ---------- FILTRO EVENTOS ----------
+EVENTOS=["forum","summit","conference","webinar","seminar","workshop","meeting","foro","cumbre","conferencia","seminario","taller","evento"]
+def es_evento(t):
+    return any(e in t.lower() for e in EVENTOS)
 
+
+# ---------- CLASIFICACIÓN ----------
 TEMAS={
-    "IA":["ai","artificial intelligence","algoritmo","deepfake"],
     "Privacidad":["privacy","data protection","consent"],
     "Plataformas":["platform","social media","moderation"],
-    "Alfabetizacion":["literacy","education","training"],
-    "Seguridad":["online safety","risk","harm"]
+    "Alfabetización":["literacy","education","training"],
+    "Seguridad":["online safety","risk","harm"],
+    "IA":["ai","artificial intelligence","algorithm","deepfake"]
 }
 
 ACCIONES={
@@ -84,30 +75,32 @@ ACCIONES={
     "Programa":["campaign","initiative"]
 }
 
-
-def detectar_tema(t):
+def detectar(dic,t):
     t=t.lower()
-    for tema,pal in TEMAS.items():
-        if any(p in t for p in pal):
-            return tema
+    for k,v in dic.items():
+        if any(p in t for p in v):
+            return k
     return "Otros"
 
-def detectar_accion(t):
-    t=t.lower()
-    for a,pal in ACCIONES.items():
-        if any(p in t for p in pal):
-            return a
-    return "Informativo"
 
-def detectar_ia(t):
-    return any(p in t.lower() for p in IA_CLAVES)
-
+# ---------- UTILIDADES ----------
 def traducir(t):
-    try:
-        return GoogleTranslator(source="auto",target="es").translate(t)
-    except:
-        return t
+    try: return GoogleTranslator(source="auto",target="es").translate(t)
+    except: return t
 
+def limpiar_link(url):
+    try:
+        if "news.google.com" in url:
+            r=requests.get(url,timeout=6,allow_redirects=True,headers={"User-Agent":"Mozilla/5.0"})
+            return r.url
+        return url
+    except: return url
+
+def link_valido(url):
+    try:
+        r=requests.head(url,timeout=5,allow_redirects=True,headers={"User-Agent":"Mozilla/5.0"})
+        return r.status_code<400
+    except: return False
 
 def es_reciente(entry):
     if hasattr(entry,"published_parsed") and entry.published_parsed:
@@ -115,42 +108,28 @@ def es_reciente(entry):
         return fecha>=datetime.now()-timedelta(days=365)
     return False
 
-def obtener_fecha(entry):
+def fecha_noticia(entry):
     if hasattr(entry,"published_parsed") and entry.published_parsed:
         return datetime(*entry.published_parsed[:6]).strftime("%Y-%m-%d")
     return ""
 
-def link_valido(url):
-    try:
-        r=requests.head(url,timeout=5,allow_redirects=True,headers={"User-Agent":"Mozilla/5.0"})
-        if r.status_code<400:
-            return True
-        r=requests.get(url,timeout=6,allow_redirects=True,headers={"User-Agent":"Mozilla/5.0"})
-        return r.status_code<400
-    except:
-        return False
-
 
 # ---------- RECOLECTAR ----------
 def recolectar():
-
     datos=[]
-
     for reg,url in FUENTES.items():
         feed=feedparser.parse(url)
-
         for e in feed.entries:
 
-            if not es_reciente(e):
-                continue
+            if not es_reciente(e): continue
 
-            titulo=str(e.title).strip()
+            titulo=e.title.strip()
 
-            if es_evento(titulo):
-                continue
+            if es_evento(titulo): continue
+            if not es_tema_crc(titulo): continue
 
-            if not link_valido(e.link):
-                continue
+            link=limpiar_link(e.link)
+            if not link_valido(link): continue
 
             meta=META.get(reg,{"pais":"Internacional","region":"Global","tipo":"Otro"})
 
@@ -159,24 +138,19 @@ def recolectar():
                 "pais":meta["pais"],
                 "region":meta["region"],
                 "tipo_actor":meta["tipo"],
-                "tema_global":detectar_tema(titulo),
-                "accion_regulatoria":detectar_accion(titulo),
-                "contexto_crc":"Alfabetización" if "literacy" in titulo.lower() else "Regulación",
+                "tema":detectar(TEMAS,titulo),
+                "intervencion":detectar(ACCIONES,titulo),
                 "titulo_original":titulo,
                 "titulo_es":traducir(titulo),
-                "link":e.link,
-                "fecha_noticia":obtener_fecha(e),
+                "link":link,
+                "fecha_noticia":fecha_noticia(e),
                 "fecha_busqueda":datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d")
             })
 
     df=pd.DataFrame(datos)
-
     if not df.empty:
         df.drop_duplicates(subset=["titulo_original"],inplace=True)
-        # intensidad por tema
-        conteo=df.groupby("tema_global").size().to_dict()
-        df["intensidad"]=df["tema_global"].map(conteo)
-
+        df["intensidad"]=df.groupby("tema")["tema"].transform("count")
     return df
 
 
@@ -186,41 +160,30 @@ def conectar():
     creds=Credentials.from_service_account_info(json.loads(creds_json),
         scopes=["https://www.googleapis.com/auth/spreadsheets"])
     client=gspread.authorize(creds)
-    sh=client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
-    return sh.sheet1
+    return client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw").sheet1
 
 
 def guardar(df):
-
     ws=conectar()
-
     columnas=[
         "regulador","pais","region","tipo_actor",
-        "tema_global","accion_regulatoria","contexto_crc","intensidad",
+        "tema","intervencion","intensidad",
         "titulo_original","titulo_es","link",
         "fecha_noticia","fecha_busqueda"
     ]
-
     df=df[columnas].fillna("").astype(str)
-
     ws.update(range_name="A1",values=[columnas]+df.values.tolist())
-
-    print("✅ Monitoreo CRC FINAL con inteligencia regulatoria")
+    print("✅ Monitoreo CRC final actualizado")
 
 
 # ---------- MAIN ----------
 def main():
-
     df=recolectar()
-
     if df.empty:
         print("⚠️ No hay noticias relevantes")
         return
-
     guardar(df)
-
     print(f"✅ {len(df)} noticias procesadas")
-
 
 if __name__=="__main__":
     main()
