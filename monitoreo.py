@@ -2,7 +2,7 @@ import feedparser
 import pandas as pd
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-import os, json, gspread, requests
+import os, json, gspread, requests, re
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
 
@@ -43,45 +43,34 @@ FUENTES={
 }
 
 
-# ---------- PALABRAS CLAVE GENERALES ----------
-CLAVES=[
-    "children","child","kids","minor","youth","teen",
-    "privacy","data protection","platform regulation",
-    "online safety","digital safety","content moderation",
-    "niños","infancia","menores","protección digital"
-]
+# ---------- CLASIFICADORES CRC ----------
 
-# 🔴 NUEVAS PALABRAS IA CRC
-IA_CLAVES=[
-    "artificial intelligence","ai","algorithm",
-    "machine learning","generative ai","deepfake",
-    "inteligencia artificial","algoritmo","recomendación automática"
-]
+IA_CLAVES=["artificial intelligence","ai","algoritmo","deepfake","machine learning"]
 
-
-TIPO_POLITICA={
-    "ley":"Legislación",
-    "law":"Legislación",
-    "regulation":"Regulación",
-    "policy":"Política pública",
-    "agreement":"Acuerdo",
+PIEZAS={
+    "campaign":"Campaña",
+    "guide":"Guía",
     "guideline":"Guía",
-    "framework":"Marco regulatorio"
+    "report":"Informe",
+    "strategy":"Estrategia",
+    "law":"Ley",
+    "regulation":"Regulación",
+    "framework":"Marco regulatorio",
+    "policy":"Política pública",
+    "literacy":"Alfabetización mediática",
+    "education":"Programa educativo"
 }
+
+STOPWORDS={"the","and","for","with","from","about","over","under","into","new"}
 
 
 # ---------- UTILIDADES ----------
+
 def limpiar(t):
     t=str(t).replace("\n"," ").strip()
     if " - " in t:
         t=t.rsplit(" - ",1)[0]
     return t
-
-def relevante(t):
-    return any(p in str(t).lower() for p in CLAVES)
-
-def detectar_ia(t):
-    return any(p in str(t).lower() for p in IA_CLAVES)
 
 def traducir(t):
     try:
@@ -89,18 +78,30 @@ def traducir(t):
     except:
         return t
 
-def detectar_tipo(texto):
-    texto=texto.lower()
-    for k,v in TIPO_POLITICA.items():
-        if k in texto:
+def detectar_ia(t):
+    return any(p in t.lower() for p in IA_CLAVES)
+
+def detectar_pieza(t):
+    for k,v in PIEZAS.items():
+        if k in t.lower():
             return v
-    return "General"
+    return "Otro"
+
+def extraer_keywords(texto):
+    palabras=re.findall(r'\b[a-zA-Z]{4,}\b', texto.lower())
+    palabras=[p for p in palabras if p not in STOPWORDS]
+    return ", ".join(palabras[:5])
 
 def es_reciente(entry):
     if hasattr(entry,"published_parsed") and entry.published_parsed:
         fecha=datetime(*entry.published_parsed[:6])
         return fecha>=datetime.now()-timedelta(days=365)
     return False
+
+def obtener_fecha(entry):
+    if hasattr(entry,"published_parsed") and entry.published_parsed:
+        return datetime(*entry.published_parsed[:6]).strftime("%Y-%m-%d")
+    return ""
 
 def link_valido(url):
     try:
@@ -116,6 +117,7 @@ def link_valido(url):
 
 
 # ---------- RECOLECTAR ----------
+
 def recolectar():
 
     datos=[]
@@ -131,19 +133,12 @@ def recolectar():
 
             titulo=limpiar(e.title)
 
-            if not relevante(titulo):
-                continue
-
             if not link_valido(e.link):
                 continue
 
             meta=META.get(reg,{"pais":"Internacional","region":"Global","tipo":"Otro"})
 
-            # 🔴 NUEVA CLASIFICACIÓN CRC
-            if detectar_ia(titulo):
-                tema="IA y protección infantil"
-            else:
-                tema="Protección digital general"
+            tema="IA y protección infantil" if detectar_ia(titulo) else "Protección digital"
 
             datos.append({
                 "regulador":reg,
@@ -151,11 +146,13 @@ def recolectar():
                 "region":meta["region"],
                 "tipo_actor":meta["tipo"],
                 "tema_crc":tema,
-                "tipo_politica":detectar_tipo(titulo),
+                "tipo_pieza":detectar_pieza(titulo),
+                "frases_clave":extraer_keywords(titulo),
                 "titulo_original":titulo,
                 "titulo_es":traducir(titulo),
                 "link":e.link,
-                "fecha":datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M")
+                "fecha_noticia":obtener_fecha(e),
+                "fecha_busqueda":datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d")
             })
 
     df=pd.DataFrame(datos)
@@ -166,47 +163,43 @@ def recolectar():
     return df
 
 
-# ---------- CONECTAR SHEETS ----------
+# ---------- SHEETS ----------
+
 def conectar():
-
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
-
-    creds=Credentials.from_service_account_info(
-        json.loads(creds_json),
-        scopes=["https://www.googleapis.com/auth/spreadsheets"]
-    )
-
+    creds=Credentials.from_service_account_info(json.loads(creds_json),
+        scopes=["https://www.googleapis.com/auth/spreadsheets"])
     client=gspread.authorize(creds)
     sh=client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
-
     return sh.sheet1
 
 
-# ---------- GUARDAR ----------
 def guardar(df):
 
     ws=conectar()
 
     columnas=[
         "regulador","pais","region","tipo_actor",
-        "tema_crc","tipo_politica",
-        "titulo_original","titulo_es","link","fecha"
+        "tema_crc","tipo_pieza","frases_clave",
+        "titulo_original","titulo_es","link",
+        "fecha_noticia","fecha_busqueda"
     ]
 
     df=df[columnas].fillna("").astype(str)
 
     ws.update(range_name="A1",values=[columnas]+df.values.tolist())
 
-    print("✅ Monitoreo CRC actualizado con análisis IA")
+    print("✅ Monitoreo CRC actualizado con tendencias")
 
 
 # ---------- MAIN ----------
+
 def main():
 
     df=recolectar()
 
     if df.empty:
-        print("⚠️ No hay noticias recientes relevantes")
+        print("⚠️ No hay noticias relevantes")
         return
 
     guardar(df)
