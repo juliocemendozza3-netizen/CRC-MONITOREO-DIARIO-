@@ -1,6 +1,6 @@
 import feedparser
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 import os, json, gspread, requests, re
 from google.oauth2.service_account import Credentials
@@ -66,16 +66,13 @@ def limpiar_texto(t):
     t=str(t)
     t=t.replace("\n"," ").strip()
     t=re.sub(r'\b\d+\b', '', t)
-    t=" ".join(t.split())
-    return t
+    return " ".join(t.split())
 
 
 def traducir(t):
     try:
         trad=GoogleTranslator(source="auto",target="es").translate(t)
-        if trad.lower()==t.lower():
-            return t
-        return trad
+        return t if trad.lower()==t.lower() else trad
     except:
         return t
 
@@ -117,7 +114,6 @@ def link_valido(url):
 
 # ---------- RECOLECTAR ----------
 def recolectar():
-
     datos=[]
 
     for reg,url in FUENTES.items():
@@ -132,16 +128,13 @@ def recolectar():
 
             meta=META.get(reg,{"pais":"Internacional","region":"Global","tipo":"Otro"})
 
-            accion=detectar_accion(titulo)
-            tema=detectar_tema(titulo)
-
             datos.append({
                 "regulador":reg,
                 "pais":meta["pais"],
                 "region":meta["region"],
                 "tipo_actor":meta["tipo"],
-                "tema_global":tema,
-                "accion_regulatoria":accion,
+                "tema_global":detectar_tema(titulo),
+                "accion_regulatoria":detectar_accion(titulo),
                 "titulo_original":titulo,
                 "titulo_es":traducir(titulo),
                 "link":str(e.link).strip(),
@@ -163,11 +156,10 @@ def conectar():
     creds=Credentials.from_service_account_info(json.loads(creds_json),
         scopes=["https://www.googleapis.com/auth/spreadsheets"])
     client=gspread.authorize(creds)
-    sh=client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
-    return sh
+    return client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
 
 
-# ---------- GUARDAR EN HOJAS SEGMENTADAS ----------
+# ---------- GUARDAR ----------
 def guardar(df):
 
     sh=conectar()
@@ -181,16 +173,15 @@ def guardar(df):
 
     df=df[columnas].fillna("").astype(str)
 
-    # Hoja principal
-    hoja_total=sh.worksheet("Sheet1")
+    # ✔ Hoja principal robusta
+    hoja_total=sh.get_worksheet(0)
     hoja_total.update("A1",[columnas]+df.values.tolist())
 
-    # 🔴 SEGMENTACIONES
-    regulaciones=df[df["accion_regulatoria"].isin(["Regulación","Política"])]
+    # ✔ Segmentaciones correctas
+    regulaciones=df[df["accion_regulatoria"].isin(["Regulación","Política pública"])]
     alfabetizacion=df[df["tema_global"]=="Alfabetizacion"]
     proteccion=df[df["tema_global"].isin(["Seguridad","Privacidad","Plataformas"])]
 
-    # Crear hojas si no existen
     def get_or_create(name):
         try:
             return sh.worksheet(name)
@@ -198,18 +189,15 @@ def guardar(df):
             return sh.add_worksheet(title=name, rows="1000", cols="20")
 
     get_or_create("REGULACIONES").update("A1",[columnas]+regulaciones.values.tolist())
-    get_or_create("ALFABETIZACION_MIL").update("A1",[columnas]+alfabetizacion.values.tolist())
+    get_or_create("ALFABETIZACION_AMI").update("A1",[columnas]+alfabetizacion.values.tolist())
     get_or_create("PROTECCION_NNA").update("A1",[columnas]+proteccion.values.tolist())
 
     print("✅ Sheet principal actualizado")
-    print("✅ Hoja REGULACIONES creada")
-    print("✅ Hoja ALFABETIZACION creada")
-    print("✅ Hoja PROTECCION creada")
+    print("✅ Hojas segmentadas creadas")
 
 
 # ---------- MAIN ----------
 def main():
-
     df=recolectar()
 
     if df.empty:
@@ -217,7 +205,6 @@ def main():
         return
 
     guardar(df)
-
     print(f"✅ {len(df)} noticias procesadas")
 
 
