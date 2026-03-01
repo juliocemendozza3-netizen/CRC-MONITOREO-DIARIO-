@@ -6,7 +6,6 @@ import os, json, gspread, requests, re
 from google.oauth2.service_account import Credentials
 from deep_translator import GoogleTranslator
 
-
 # ---------- METADATOS ----------
 META={
     "CRC":{"pais":"Colombia","region":"Latinoamérica","tipo":"Regulador"},
@@ -23,7 +22,6 @@ META={
     "Regulatel":{"pais":"Latinoamérica","region":"Latinoamérica","tipo":"Red regulatoria"},
     "PRAI":{"pais":"Latinoamérica","region":"Latinoamérica","tipo":"Programa regional"}
 }
-
 
 # ---------- FUENTES ----------
 FUENTES={
@@ -42,7 +40,6 @@ FUENTES={
     "PRAI":"https://news.google.com/rss/search?q=PRAI+infancia+televisión+educativa&hl=es&gl=CO&ceid=CO:es"
 }
 
-
 # ---------- CLASIFICADORES ----------
 TEMAS={
     "IA":["ai","artificial intelligence","algoritmo","deepfake"],
@@ -60,14 +57,12 @@ ACCIONES={
     "Programa AMI":["campaign","initiative"]
 }
 
-
 # ---------- UTILIDADES ----------
 def limpiar_texto(t):
     t=str(t)
     t=t.replace("\n"," ").strip()
     t=re.sub(r'\b\d+\b', '', t)
     return " ".join(t.split())
-
 
 def traducir(t):
     try:
@@ -76,14 +71,12 @@ def traducir(t):
     except:
         return t
 
-
 def detectar_tema(t):
     t=t.lower()
     for tema,pal in TEMAS.items():
         if any(p in t for p in pal):
             return tema
     return "Otros"
-
 
 def detectar_accion(t):
     t=t.lower()
@@ -92,12 +85,10 @@ def detectar_accion(t):
             return a
     return "Informativo"
 
-
 def obtener_fecha(entry):
     if hasattr(entry,"published_parsed") and entry.published_parsed:
         return datetime(*entry.published_parsed[:6]).strftime("%Y-%m-%d")
     return ""
-
 
 def link_valido(url):
     try:
@@ -111,14 +102,17 @@ def link_valido(url):
     except:
         return False
 
+# 🔴 FILTRO ÚLTIMO AÑO
+def filtrar_ultimo_anio(df):
+    df["fecha_noticia"]=pd.to_datetime(df["fecha_noticia"], errors="coerce")
+    limite=pd.Timestamp.now(tz="America/Bogota")-pd.Timedelta(days=365)
+    return df[df["fecha_noticia"]>=limite]
 
 # ---------- RECOLECTAR ----------
 def recolectar():
     datos=[]
-
     for reg,url in FUENTES.items():
         feed=feedparser.parse(url)
-
         for e in feed.entries:
 
             titulo=limpiar_texto(e.title)
@@ -127,14 +121,16 @@ def recolectar():
                 continue
 
             meta=META.get(reg,{"pais":"Internacional","region":"Global","tipo":"Otro"})
+            accion=detectar_accion(titulo)
+            tema=detectar_tema(titulo)
 
             datos.append({
                 "regulador":reg,
                 "pais":meta["pais"],
                 "region":meta["region"],
                 "tipo_actor":meta["tipo"],
-                "tema_global":detectar_tema(titulo),
-                "accion_regulatoria":detectar_accion(titulo),
+                "tema_global":tema,
+                "accion_regulatoria":accion,
                 "titulo_original":titulo,
                 "titulo_es":traducir(titulo),
                 "link":str(e.link).strip(),
@@ -143,12 +139,10 @@ def recolectar():
             })
 
     df=pd.DataFrame(datos)
-
     if not df.empty:
         df.drop_duplicates(subset=["titulo_original"],inplace=True)
-
+        df=filtrar_ultimo_anio(df)
     return df
-
 
 # ---------- CONEXION SHEETS ----------
 def conectar():
@@ -157,7 +151,6 @@ def conectar():
         scopes=["https://www.googleapis.com/auth/spreadsheets"])
     client=gspread.authorize(creds)
     return client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
-
 
 # ---------- GUARDAR ----------
 def guardar(df):
@@ -173,11 +166,11 @@ def guardar(df):
 
     df=df[columnas].fillna("").astype(str)
 
-    # ✔ Hoja principal robusta
+    # HOJA PRINCIPAL
     hoja_total=sh.get_worksheet(0)
     hoja_total.update("A1",[columnas]+df.values.tolist())
 
-    # ✔ Segmentaciones correctas
+    # SEGMENTACIONES
     regulaciones=df[df["accion_regulatoria"].isin(["Regulación","Política pública"])]
     alfabetizacion=df[df["tema_global"]=="Alfabetizacion"]
     proteccion=df[df["tema_global"].isin(["Seguridad","Privacidad","Plataformas"])]
@@ -192,21 +185,21 @@ def guardar(df):
     get_or_create("ALFABETIZACION_AMI").update("A1",[columnas]+alfabetizacion.values.tolist())
     get_or_create("PROTECCION_NNA").update("A1",[columnas]+proteccion.values.tolist())
 
-    print("✅ Sheet principal actualizado")
-    print("✅ Hojas segmentadas creadas")
+    # 🔴 ALERTA REGULATORIA NUEVA
+    alertas=regulaciones.groupby("pais").size().reset_index(name="nuevas_regulaciones")
+    get_or_create("ALERTAS_REGULATORIAS").update("A1",[alertas.columns.tolist()]+alertas.values.tolist())
 
+    print("✅ Monitoreo actualizado")
+    print("🚨 Alertas regulatorias generadas")
 
 # ---------- MAIN ----------
 def main():
     df=recolectar()
-
     if df.empty:
         print("⚠️ No hay noticias")
         return
-
     guardar(df)
     print(f"✅ {len(df)} noticias procesadas")
-
 
 if __name__=="__main__":
     main()
