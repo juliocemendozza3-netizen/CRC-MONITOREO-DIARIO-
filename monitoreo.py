@@ -48,16 +48,16 @@ TEMAS={
     "IA":["ai","artificial intelligence","algoritmo","deepfake"],
     "Privacidad":["privacy","data protection","consent"],
     "Plataformas":["platform","social media","moderation"],
-    "Alfabetizacion":["literacy","education","training"],
+    "Alfabetizacion":["literacy","media literacy","digital literacy","education","training"],
     "Seguridad":["online safety","risk","harm"]
 }
 
 ACCIONES={
     "Regulación":["law","regulation","rule","bill"],
-    "Política":["policy","strategy","plan"],
+    "Política pública":["public policy","strategy","plan"],
     "Guía":["guide","guideline","recommendation"],
     "Sanción":["fine","penalty","investigation"],
-    "Programa":["campaign","initiative"]
+    "Programa AMI":["campaign","initiative"]
 }
 
 
@@ -70,16 +70,11 @@ def limpiar_texto(t):
     return t
 
 
-# 🔴 CAMBIO APLICADO AQUÍ
 def traducir(t):
     try:
         trad=GoogleTranslator(source="auto",target="es").translate(t)
-
-        # Si la traducción es igual al original,
-        # asumimos que ya está en español y lo repetimos
         if trad.lower()==t.lower():
             return t
-
         return trad
     except:
         return t
@@ -126,7 +121,6 @@ def recolectar():
     datos=[]
 
     for reg,url in FUENTES.items():
-
         feed=feedparser.parse(url)
 
         for e in feed.entries:
@@ -138,14 +132,16 @@ def recolectar():
 
             meta=META.get(reg,{"pais":"Internacional","region":"Global","tipo":"Otro"})
 
+            accion=detectar_accion(titulo)
+            tema=detectar_tema(titulo)
+
             datos.append({
                 "regulador":reg,
                 "pais":meta["pais"],
                 "region":meta["region"],
                 "tipo_actor":meta["tipo"],
-                "tema_global":detectar_tema(titulo),
-                "accion_regulatoria":detectar_accion(titulo),
-                "contexto_crc":"Alfabetización" if "literacy" in titulo.lower() else "Regulación",
+                "tema_global":tema,
+                "accion_regulatoria":accion,
                 "titulo_original":titulo,
                 "titulo_es":traducir(titulo),
                 "link":str(e.link).strip(),
@@ -161,35 +157,54 @@ def recolectar():
     return df
 
 
-# ---------- SHEETS ----------
+# ---------- CONEXION SHEETS ----------
 def conectar():
     creds_json=os.environ.get("GOOGLE_DRIVE_JSON")
     creds=Credentials.from_service_account_info(json.loads(creds_json),
         scopes=["https://www.googleapis.com/auth/spreadsheets"])
     client=gspread.authorize(creds)
     sh=client.open_by_key("1KhVwAHYcwSU6h4U0GTFfFmODVy7ZgV21Q1Ahjo7aoqw")
-    return sh.sheet1
+    return sh
 
 
+# ---------- GUARDAR EN HOJAS SEGMENTADAS ----------
 def guardar(df):
 
-    ws=conectar()
+    sh=conectar()
 
     columnas=[
         "regulador","pais","region","tipo_actor",
-        "tema_global","accion_regulatoria","contexto_crc",
+        "tema_global","accion_regulatoria",
         "titulo_original","titulo_es","link",
         "fecha_noticia","fecha_busqueda"
     ]
 
     df=df[columnas].fillna("").astype(str)
 
-    for col in ["titulo_original","titulo_es"]:
-        df[col]=df[col].apply(limpiar_texto)
+    # Hoja principal
+    hoja_total=sh.worksheet("Sheet1")
+    hoja_total.update("A1",[columnas]+df.values.tolist())
 
-    ws.update(range_name="A1",values=[columnas]+df.values.tolist())
+    # 🔴 SEGMENTACIONES
+    regulaciones=df[df["accion_regulatoria"].isin(["Regulación","Política"])]
+    alfabetizacion=df[df["tema_global"]=="Alfabetizacion"]
+    proteccion=df[df["tema_global"].isin(["Seguridad","Privacidad","Plataformas"])]
 
-    print("✅ Sheet limpio, ordenado y funcional")
+    # Crear hojas si no existen
+    def get_or_create(name):
+        try:
+            return sh.worksheet(name)
+        except:
+            return sh.add_worksheet(title=name, rows="1000", cols="20")
+
+    get_or_create("REGULACIONES").update("A1",[columnas]+regulaciones.values.tolist())
+    get_or_create("ALFABETIZACION_MIL").update("A1",[columnas]+alfabetizacion.values.tolist())
+    get_or_create("PROTECCION_NNA").update("A1",[columnas]+proteccion.values.tolist())
+
+    print("✅ Sheet principal actualizado")
+    print("✅ Hoja REGULACIONES creada")
+    print("✅ Hoja ALFABETIZACION creada")
+    print("✅ Hoja PROTECCION creada")
 
 
 # ---------- MAIN ----------
