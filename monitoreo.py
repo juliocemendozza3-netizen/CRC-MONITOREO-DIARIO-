@@ -102,10 +102,17 @@ def link_valido(url):
     except:
         return False
 
-# 🔴 FILTRO ÚLTIMO AÑO
+# 🔴 FILTRO ÚLTIMO AÑO (CORREGIDO)
 def filtrar_ultimo_anio(df):
+
+    if df.empty:
+        return df
+
     df["fecha_noticia"]=pd.to_datetime(df["fecha_noticia"], errors="coerce")
-    limite=pd.Timestamp.now(tz="America/Bogota")-pd.Timedelta(days=365)
+
+    # SIN zona horaria para evitar conflicto tz-aware vs tz-naive
+    limite=pd.Timestamp.now()-pd.Timedelta(days=365)
+
     return df[df["fecha_noticia"]>=limite]
 
 # ---------- RECOLECTAR ----------
@@ -166,11 +173,9 @@ def guardar(df):
 
     df=df[columnas].fillna("").astype(str)
 
-    # HOJA PRINCIPAL
     hoja_total=sh.get_worksheet(0)
     hoja_total.update("A1",[columnas]+df.values.tolist())
 
-    # SEGMENTACIONES
     regulaciones=df[df["accion_regulatoria"].isin(["Regulación","Política pública"])]
     alfabetizacion=df[df["tema_global"]=="Alfabetizacion"]
     proteccion=df[df["tema_global"].isin(["Seguridad","Privacidad","Plataformas"])]
@@ -185,7 +190,6 @@ def guardar(df):
     get_or_create("ALFABETIZACION_AMI").update("A1",[columnas]+alfabetizacion.values.tolist())
     get_or_create("PROTECCION_NNA").update("A1",[columnas]+proteccion.values.tolist())
 
-    # 🔴 ALERTA REGULATORIA NUEVA
     alertas=regulaciones.groupby("pais").size().reset_index(name="nuevas_regulaciones")
     get_or_create("ALERTAS_REGULATORIAS").update("A1",[alertas.columns.tolist()]+alertas.values.tolist())
 
